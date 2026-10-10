@@ -78,6 +78,36 @@ jobs:
           echo "Multiplayer server: $url"
           echo "::notice title=Multiplayer server::$url"
           echo "wss=${url/https:/wss:}" >> "$GITHUB_OUTPUT"
+          echo "https=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Check the multiplayer server
+        if: steps.worker.outputs.https != ''
+        continue-on-error: true
+        working-directory: server
+        env:
+          NO_COLOR: '1'
+        run: |
+          # watch the server's own log while two test players connect
+          npx --yes wrangler@4 tail crush-commando-mp --format json > tail.log 2>&1 &
+          tail_pid=$!
+          sleep 12
+          set +e
+          node probe.mjs "${{ steps.worker.outputs.https }}"
+          code=$?
+          sleep 6
+          kill $tail_pid 2>/dev/null
+          node -e "
+            const lines = require('fs').readFileSync('tail.log', 'utf8').split('\\n');
+            let n = 0;
+            for (const l of lines) {
+              let j; try { j = JSON.parse(l); } catch (_) { continue; }
+              for (const x of j.exceptions || []) if (n++ < 6) console.log('::error title=Server exception::' + (x.name || '') + ': ' + (x.message || '').slice(0, 200));
+              for (const x of j.logs || []) if (n++ < 6) console.log('::warning title=Server log::' + JSON.stringify(x.message).slice(0, 200));
+              if (j.outcome && j.outcome !== 'ok' && n++ < 6) console.log('::warning title=Server outcome::' + j.outcome + ' ' + ((j.event && j.event.request && j.event.request.url) || ''));
+            }
+            console.log('tail lines: ' + lines.length);
+          "
+          exit $code
 
       - name: Assemble site
         run: |
