@@ -23,6 +23,18 @@ function fireWeapon() {
   const [ax, ay] = G.aim;
   const ox = P.x + 5 + ax * 9, oy = (P.crouch ? P.y + 10 : P.y + 4) + ay * 8;
   const base = Math.atan2(ay, ax);
+  if (fp) {
+    const cp = Math.cos(G.pitch), sp = Math.sin(G.pitch);
+    for (let i = 0; i < W.n; i++) {
+      const off = W.n > 1 ? (i - (W.n - 1) / 2) * W.spread : 0;
+      const a = G.yaw + off + (W.jitter ? (Math.random() - 0.5) * W.jitter : 0);
+      const dx = Math.cos(a) * cp, dz = Math.sin(a) * cp, dy = -sp;
+      const z = (P.z || 0) + dz * 6;
+      G.bolts.push({ lane: Math.round(z / LW), z, vz: dz * W.speed, x: P.x + 5 + dx * 6, y: P.y + 3 + dy * 6, vx: dx * W.speed, vy: dy * W.speed, life: W.life, dmg: W.dmg, pierce: !!W.pierce, flame: !!W.flame, w: G.weapon, hit: W.pierce ? new Set() : null, t: 0 });
+    }
+    G.muzzle = 0.06; G.fpKick = 1; sfx('gun' + G.weapon);
+    return;
+  }
   for (let i = 0; i < W.n; i++) {
     const off = W.n > 1 ? (i - (W.n - 1) / 2) * W.spread : 0;
     const a = base + off + (W.jitter ? (Math.random() - 0.5) * W.jitter : 0);
@@ -52,6 +64,7 @@ function updateBolts(dt) {
     b.t += dt;
     if (b.flame) b.vy += Math.sin(b.t * 28) * 30;
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    if (b.vz) { b.z += b.vz * dt; b.lane = Math.round(b.z / LW); if (Math.abs(b.lane) >= NL) { b.life = 0; continue; } }
     if (isSolidT(laneL(b.lane || 0) || L, Math.floor(b.x / 16), Math.floor(b.y / 16))) { b.life = 0; burst(G, b.x, b.y, 4, WCOL[b.w], 60, 0, true); continue; }
     const box = { x: b.x - 3, y: b.y - 3, w: 6, h: 6 };
     for (const e of G.ents) {

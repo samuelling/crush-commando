@@ -25,7 +25,15 @@ Open `index.html` in a browser to play. It is a single self-contained file with 
 | Pause | Esc / P | Start | ❚❚ |
 | Mute music | M | | |
 
-In first person, Up and Down walk forward and back, and Left and Right step sideways between lanes.
+In first person you can look around freely:
+
+| Action | Keyboard / mouse | Gamepad | Touch |
+|---|---|---|---|
+| Look | Mouse (click the game to lock it), or ← → / Q E to turn | Right stick | Drag on the screen |
+| Walk | W S or ↑ ↓ | Left stick | Pad up/down |
+| Strafe | A D | Left stick | Pad left/right |
+
+You walk in whatever direction you face, so you can head straight off the path into the hidden lanes. Shots fly where you aim, including up and down.
 
 ## Layout
 
@@ -40,7 +48,7 @@ src/
   render.js           themes, parallax backgrounds, tile art, lighting
   entities.js         enemies, pickups, platforms
   bosses.js           the five memory bosses
-  fps.js              first-person renderer and the hidden 3D lanes
+  fps.js              first-person raycaster, free-look controls, hidden 3D lanes
   combat.js           weapons, bullets, troopers, weapon pods, hero art
   story.js            intro, mission briefings, ending text
   main.js             input, scenes, HUD, menus, main loop

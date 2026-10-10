@@ -22,14 +22,16 @@ const G = {
 
 // ---------- input ----------
 const ACTS = ['left', 'right', 'up', 'down', 'jump', 'dash', 'fire', 'pause', 'confirm', 'mute'];
-const kb = {}, tc = {}, gp = {}, latch = {}, prev = {};
+const kb = {}, tc = {}, gp = {}, latch = {}, prev = {}, kraw = {};
 const KEYS = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', KeyZ: 'jump', Space: 'jump', KeyK: 'jump', KeyX: 'fire', KeyJ: 'fire', KeyF: 'fire', ShiftLeft: 'dash', ShiftRight: 'dash', KeyC: 'dash', KeyL: 'dash', Escape: 'pause', KeyP: 'pause', Enter: 'confirm', KeyM: 'mute' };
 addEventListener('keydown', e => {
+  kraw[e.code] = true;
+  if (G.mode === 'fp' && (e.code === 'KeyQ' || e.code === 'KeyE')) e.preventDefault();
   const a = KEYS[e.code]; if (!a) return;
   e.preventDefault(); if (!kb[a]) latch[a] = true; kb[a] = true; audioInit(); G.lastInput = 'kb';
 });
-addEventListener('keyup', e => { const a = KEYS[e.code]; if (a) kb[a] = false; });
-addEventListener('blur', () => { for (const k in kb) kb[k] = false; for (const k in tc) tc[k] = false; if (G.scene === 'play' && !G.overlay) openPause(); });
+addEventListener('keyup', e => { kraw[e.code] = false; const a = KEYS[e.code]; if (a) kb[a] = false; });
+addEventListener('blur', () => { for (const k in kb) kb[k] = false; for (const k in kraw) kraw[k] = false; for (const k in tc) tc[k] = false; if (G.scene === 'play' && !G.overlay) openPause(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && G.scene === 'play' && !G.overlay) openPause(); });
 function setT(a, v) { if (v && !tc[a]) latch[a] = true; tc[a] = v; }
 function setupTouch() {
@@ -64,6 +66,9 @@ function pollPad() {
   if (!p) return;
   const b = i => p.buttons[i] && p.buttons[i].pressed, ax = p.axes[0] || 0, ay = p.axes[1] || 0;
   const st = { left: ax < -0.4 || b(14), right: ax > 0.4 || b(15), up: ay < -0.5 || b(12), down: ay > 0.5 || b(13), jump: b(0) || b(3), fire: b(2) || b(1) || b(7), dash: b(5) || b(4) || b(6), pause: b(9) };
+  const lx = p.axes[2] || 0, ly = p.axes[3] || 0;
+  G.padLookX = Math.abs(lx) > 0.18 ? lx : 0; G.padLookY = Math.abs(ly) > 0.18 ? ly : 0;
+  if (G.padLookY) G.lookIdle = 0;
   let any = false;
   for (const a in st) { if (st[a] && !gp[a]) latch[a] = true; gp[a] = !!st[a]; any = any || st[a]; }
   if (any) G.lastInput = 'pad';
@@ -86,8 +91,28 @@ cv.addEventListener('pointerdown', e => {
   const r = cv.getBoundingClientRect();
   G.click = { x: (e.clientX - r.left) / r.width * VW, y: (e.clientY - r.top) / r.height * VH };
   if (e.pointerType === 'touch') { G.lastInput = 'touch'; if (!G.touch) { G.touch = true; layout(); } }
-  if (G.scene === 'play' && !G.overlay && e.pointerType === 'mouse') G.mouseFire = true;
+  if (G.scene === 'play' && !G.overlay && e.pointerType === 'mouse') {
+    G.mouseFire = true;
+    if (G.mode === 'fp' && document.pointerLockElement !== cv && cv.requestPointerLock) { try { const r = cv.requestPointerLock(); if (r && r.catch) r.catch(() => { }); } catch (_) { } }
+  }
+  if (G.scene === 'play' && G.mode === 'fp' && e.pointerType !== 'mouse') { G.dragId = e.pointerId; G.dragX = e.clientX; G.dragY = e.clientY; }
 });
+cv.addEventListener('pointermove', e => {
+  if (G.mode !== 'fp' || G.scene !== 'play' || G.overlay) return;
+  const r = cv.getBoundingClientRect(), k = VW / r.width;
+  if (e.pointerType === 'mouse') {
+    if (document.pointerLockElement === cv || (e.buttons & 1)) { G.lookDX = (G.lookDX || 0) + (e.movementX || 0) * 0.0042; G.lookDY = (G.lookDY || 0) + (e.movementY || 0) * 0.0032; G.lookIdle = 0; }
+  } else if (e.pointerId === G.dragId) {
+    G.lookDX = (G.lookDX || 0) + (e.clientX - G.dragX) * k * 0.012; G.lookDY = (G.lookDY || 0) + (e.clientY - G.dragY) * k * 0.009;
+    G.dragX = e.clientX; G.dragY = e.clientY; G.lookIdle = 0;
+  }
+});
+document.addEventListener('mousemove', e => {
+  if (document.pointerLockElement === cv && G.mode === 'fp' && e.target !== cv) { G.lookDX = (G.lookDX || 0) + (e.movementX || 0) * 0.0042; G.lookDY = (G.lookDY || 0) + (e.movementY || 0) * 0.0032; G.lookIdle = 0; }
+});
+cv.addEventListener('pointerup', e => { if (e.pointerId === G.dragId) G.dragId = null; });
+cv.addEventListener('pointercancel', e => { if (e.pointerId === G.dragId) G.dragId = null; });
+function releaseLock() { try { if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock(); } catch (_) { } }
 addEventListener('pointerup', () => { G.mouseFire = false; });
 addEventListener('touchstart', () => { if (!G.touch) { G.touch = true; G.lastInput = 'touch'; layout(); } }, { passive: true });
 
@@ -122,7 +147,7 @@ function startStage(w, i) {
     embers: 0, starsGot: [false, false, false], time: 0, deaths: 0, boss: arena ? makeBoss(w) : null, shake: 0, hitstop: 0, flash: 0,
     banner: 3.2, toast: null, wind: 0, darkBoost: 0, results: null, lavaRise: 0,
   });
-  G.mode = 'side'; G.bolts = []; G.fpTurn = 0; G.fpFace = 1; G.fpCD = 0; G.fpSeen = false; G.weapon = 'N'; G.fireCD = 0; G.aim = [1, 0]; G.runT = 3; G.podT = 6; G.escape = null; G.muzzle = 0;
+  G.yaw = 0; G.pitch = 0; G.mode = 'side'; G.bolts = []; G.fpTurn = 0; G.fpFace = 1; G.fpCD = 0; G.fpSeen = false; G.weapon = 'N'; G.fireCD = 0; G.aim = [1, 0]; G.runT = 3; G.podT = 6; G.escape = null; G.muzzle = 0;
   G.podPlan = arena ? [] : planPods(L, w * 31 + i * 7 + 5);
   G.lanes = null; G.laneSeen = false;
   if (L.fpZones.length) {
@@ -148,7 +173,7 @@ function respawn() {
     else if (ob.hp < G.boss.maxHp) { G.boss.hp = ob.hp; if (G.boss.enableLava && ob.hp <= 2) G.boss.enableLava(G); G.toast = { text: 'The guardian is still wounded', t: 2.5 }; }
     return;
   }
-  G.bolts = []; G.weapon = 'N';
+  G.bolts = []; G.weapon = 'N'; if (G.mode === 'fp') { G.mode = 'side'; releaseLock(); }
   const P = newPlayer(G.checkpoint.x, G.checkpoint.y); P.sx = 1; P.sy = 1;
   G.P = P; G.hp = MAXHP; G.inv = 1.0; G.pstate = 'alive'; G.projs = []; G.safe = { x: P.x, y: P.y };
 }
@@ -258,11 +283,9 @@ function updatePlay(dt, inp) {
     P.crouch = !!(inp.down && P.onGround && !inp.left && !inp.right && !inp.jumpPressed && P.dashT <= 0);
     if (G.mode === 'fp') {
       P.crouch = false;
-      const f = G.fpFace || 1;
-      pin = Object.assign({}, inp, { left: false, right: false, up: false, down: false });
-      if (inp.up) { if (f > 0) pin.right = true; else pin.left = true; }
-      else if (inp.down) { if (f > 0) pin.left = true; else pin.right = true; }
-      fpStrafe(P, (inp.right ? 1 : 0) - (inp.left ? 1 : 0), dt);
+      G.lookIdle = (G.lookIdle || 0) + dt;
+      const mv = fpControl(P, inp, dt);
+      pin = Object.assign({}, inp, { left: mv.left, right: mv.right, up: false, down: false });
     }
     G.aim = aimVec(inp, P);
     if (P.crouch && G.mode !== 'fp') G.aim = [P.face, 0];
@@ -274,6 +297,7 @@ function updatePlay(dt, inp) {
     const want = fpZoneAt(L, P.x + 5) ? 'fp' : 'side';
     if (want !== G.mode) {
       G.mode = want; G.fade = 0.7; G.fpFace = P.face; G.fpTurn = 0; P.z = 0; P.vz = 0; P.lane = 0; sfx('portal'); setFireLabel(want === 'fp');
+      if (want === 'fp') { G.yaw = P.face > 0 ? 0 : Math.PI; G.pitch = 0; } else { P.face = Math.cos(G.yaw) >= 0 ? 1 : -1; releaseLock(); }
       if (want === 'side') G.camX = clamp(P.x + 5 - VW / 2 + P.face * 34, 0, L.w * 16 - VW);
       if (want === 'fp' && !G.fpSeen) { G.fpSeen = true; G.toast = { text: fpHint(), t: 4.5 }; }
     }
@@ -505,7 +529,7 @@ function finishStage() {
   if (G.overlay === 'endingIntro') { G.scene = 'ending'; G.overlay = null; G.endT = 0; playSong('end'); }
   else playSong('map');
 }
-function openPause() { G.overlay = 'pause'; G.menu = 0; G.overlayT = 0.15; }
+function openPause() { releaseLock(); G.overlay = 'pause'; G.menu = 0; G.overlayT = 0.15; }
 
 const TUT = [
   { kb: 'Arrows move. Z jumps. Hold X to fire: aim with ↑ and ↓, crouch with ↓. Shoot the flying pods for new guns. 3 Mixtapes hide in every mission.', touch: 'Pad moves and aims (↓ crouches). JUMP jumps, hold FIRE to shoot. Shoot the flying pods for new guns. 3 Mixtapes per mission.' },

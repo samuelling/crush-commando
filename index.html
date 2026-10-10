@@ -2398,8 +2398,7 @@ function buildLanes(L, seed) {
   }
   return { lanes, extra };
 }
-function fpStrafe(P, s, dt) {
-  const target = s * (G.fpFace || 1) * 135;
+function fpMoveZ(P, target, dt) {
   P.vz = (P.vz || 0) + (target - (P.vz || 0)) * Math.min(1, 12 * dt);
   let nz = (P.z || 0) + P.vz * dt;
   const nl = Math.round(nz / LW);
@@ -2412,45 +2411,159 @@ function fpStrafe(P, s, dt) {
   }
   P.z = nz;
 }
+// first-person movement & look: returns the x-axis input for the 2D physics
+function fpControl(P, inp, dt) {
+  const look = (kraw.ArrowRight || kraw.KeyE ? 1 : 0) - (kraw.ArrowLeft || kraw.KeyQ ? 1 : 0);
+  G.yaw += look * 2.6 * dt + (G.lookDX || 0) + (G.padLookX || 0) * 3.0 * dt;
+  G.pitch = clamp(G.pitch - (G.lookDY || 0) - (G.padLookY || 0) * 2.0 * dt, -0.65, 0.65);
+  G.lookDX = 0; G.lookDY = 0;
+  if (!look && !G.padLookX && Math.abs(G.pitch) > 0 && G.lookIdle > 1.2) G.pitch *= Math.pow(0.2, dt);
+  const fwd = (inp.up ? 1 : 0) - (inp.down ? 1 : 0);
+  const str = ((kraw.KeyD || tc.right || gp.right) ? 1 : 0) - ((kraw.KeyA || tc.left || gp.left) ? 1 : 0);
+  const cy = Math.cos(G.yaw), sy = Math.sin(G.yaw);
+  let mx = fwd * cy - str * sy, mz = fwd * sy + str * cy;
+  const m = Math.hypot(mx, mz); if (m > 1) { mx /= m; mz /= m; }
+  fpMoveZ(P, mz * 140, dt);
+  G.fpFace = cy >= 0 ? 1 : -1;
+  return { right: mx > 0.3, left: mx < -0.3 };
+}
 
-// ---------- projection ----------
-const FPV = { eyeX: 0, eyeY: 0, camZ: 0, face: 1, hz: 120, cx: VW / 2 };
-const fpY = (wy, d) => FPV.hz + (wy - FPV.eyeY) * FP_F / d;
-const fpX = (z, d) => FPV.cx + (z - FPV.camZ) * FPV.face * FP_F / d;
+// ---------- raycast renderer ----------
+const FPV = { ex: 0, ey: 0, ez: 0, yaw: 0, hz: 120, cx: VW / 2 };
+const FP_PLANE = (VW / 2) / FP_F;
 function fpLight(d, C) { return clamp(1.25 - d / (230 + G.hp / MAXHP * 80), C.min, 1); }
-function fpQuad(g, d0, d1, wy, za, zb, col) {
-  const y0 = fpY(wy, d0), y1 = fpY(wy, d1);
-  g.fillStyle = col; g.beginPath(); g.moveTo(fpX(za, d0), y0); g.lineTo(fpX(zb, d0), y0); g.lineTo(fpX(zb, d1), y1); g.lineTo(fpX(za, d1), y1); g.closePath(); g.fill();
+let FPBUF = null;
+function fpBuffers() {
+  if (!FPBUF) {
+    const c = mkCanvas(VW, VH), x = c.getContext('2d'), img = x.createImageData(VW, VH);
+    FPBUF = { c, x, img, px: new Uint32Array(img.data.buffer), depth: new Float32Array(VW * VH), mask: new Uint8Array(VH), spr: mkCanvas(64, 80) };
+    FPBUF.sx = FPBUF.spr.getContext('2d');
+  }
+  return FPBUF;
 }
-function fpFront(g, d, za, zb, wy0, wy1, col, edge) {
-  const y0 = fpY(wy0, d), y1 = fpY(wy1, d), xa = fpX(za, d), xb = fpX(zb, d), x = Math.min(xa, xb), w = Math.abs(xb - xa);
-  g.fillStyle = col; g.fillRect(x, y0, w, y1 - y0);
-  if (edge && y1 - y0 > 6) { g.fillStyle = edge; g.fillRect(x, y0, w, Math.max(1, (y1 - y0) * 0.06)); }
+const pack = (r, g, b) => (255 << 24) | (Math.max(0, Math.min(255, b)) << 16) | (Math.max(0, Math.min(255, g)) << 8) | Math.max(0, Math.min(255, r));
+function shadePack(rgb, s, fog) { return pack(rgb[0] * s + fog[0] * (1 - s) * 0.35 | 0, rgb[1] * s + fog[1] * (1 - s) * 0.35 | 0, rgb[2] * s + fog[2] * (1 - s) * 0.35 | 0); }
+// vertical solid runs of one (lane, column), in world y
+function cellRuns(k, tx, cache) {
+  const key = (k + 8) * 100000 + tx;
+  let r = cache.get(key); if (r) return r;
+  r = [];
+  const Lk = laneL(k);
+  if (!Lk || Math.abs(k) >= NL) { r.push([-400, 300, 'wall']); cache.set(key, r); return r; }
+  let start = -1;
+  for (let ty = 0; ty <= 17; ty++) {
+    const t = ty < 17 ? tileAt(Lk, tx, ty) : -1, sol = ty < 17 && solidLike(Lk, tx, ty) && t !== T.BREAK && t !== T.ICE;
+    if (sol && start < 0) start = ty;
+    if (!sol && start >= 0) { r.push([start === 0 ? -400 : start * 16, ty * 16, 'solid']); start = -1; }
+    if (ty >= 17) break;
+    if (t === T.ICE && solidLike(Lk, tx, ty)) r.push([ty * 16, ty * 16 + 16, 'ice']);
+    else if (t === T.BREAK && solidLike(Lk, tx, ty)) r.push([ty * 16, ty * 16 + 16, 'break']);
+    else if (t === T.ONEWAY) r.push([ty * 16, ty * 16 + 5, 'plat']);
+    else if (t === T.LAVA && tileAt(Lk, tx, ty - 1) !== T.LAVA) r.push([ty * 16 + 6, ty * 16 + 16, 'lava']);
+    else if (t === T.LAVA) r.push([ty * 16, ty * 16 + 16, 'lava']);
+    else if (t === T.SPIKEUP) r.push([ty * 16 + 9, ty * 16 + 16, 'spike']);
+    else if (t === T.SPIKEDN) r.push([ty * 16, ty * 16 + 7, 'spike']);
+  }
+  if (!k) for (const p of Lk.plats) if (!p.gone && p.x < tx * 16 + 16 && p.x + p.w > tx * 16) r.push([p.y, p.y + 8, 'mplat']);
+  cache.set(key, r);
+  return r;
 }
-function fpSide(g, zs, d0, d1, top, bot, col) {
-  g.fillStyle = col; g.beginPath();
-  g.moveTo(fpX(zs, d0), fpY(top, d0)); g.lineTo(fpX(zs, d1), fpY(top, d1)); g.lineTo(fpX(zs, d1), fpY(bot, d1)); g.lineTo(fpX(zs, d0), fpY(bot, d0));
-  g.closePath(); g.fill();
-}
-
 function drawFP(g) {
-  const L = G.L, P = G.P, w = G.world, C = fpCols(w);
-  const face = G.fpFace || 1;
+  const L = G.L, P = G.P, w = G.world, C = fpCols(w), B = fpBuffers();
   const bob = P.onGround && (Math.abs(P.vx) > 20 || Math.abs(P.vz || 0) > 20) ? Math.sin(G.t * 14) * 1.5 : 0;
-  FPV.face = face; FPV.eyeX = P.x + 5 - face * 4; FPV.eyeY = P.y + 1 + bob; FPV.camZ = P.z || 0; FPV.hz = VH * 0.44;
-  // backdrop
+  const ex = P.x + 5, ey = P.y + 2 + bob, ez = P.z || 0, yaw = G.yaw, cy = Math.cos(yaw), sy = Math.sin(yaw);
+  const hz = VH * 0.44 + Math.tan(G.pitch) * FP_F;
+  Object.assign(FPV, { ex, ey, ez, yaw, hz });
+  // backdrop: sky + distant layer scrolls with yaw
   drawSky(g, w);
   const bg = G.bgs[w] || (G.bgs[w] = makeBG(w));
-  const off = -((((P.x * 0.05) + (face < 0 ? 512 : 0) - FPV.camZ * 0.3 * face) % 1024) + 1024) % 1024;
-  g.drawImage(bg.far, Math.round(off), -30); g.drawImage(bg.far, Math.round(off) + 1024, -30);
+  const off = -((((yaw / (Math.PI * 2)) * 2048 + P.x * 0.05) % 1024) + 1024) % 1024;
+  g.drawImage(bg.far, Math.round(off), Math.round(hz - VH * 0.44 - 30)); g.drawImage(bg.far, Math.round(off) + 1024, Math.round(hz - VH * 0.44 - 30));
   g.fillStyle = `rgba(${C.fog[0] * 0.3 | 0},${C.fog[1] * 0.3 | 0},${C.fog[2] * 0.3 | 0},0.55)`; g.fillRect(0, 0, VW, VH);
-  // bucket objects by (column, lane)
-  const etx = Math.floor(FPV.eyeX / 16), buckets = new Map();
-  const depth = x => (x - FPV.eyeX) * face;
-  const add = (o, x, lane) => {
-    const k = (Math.floor(x / 16) - etx) * face;
-    if (k < 0 || k > FP_COLS) return;
-    const key = k * 32 + lane + 16; let b = buckets.get(key); if (!b) buckets.set(key, b = []); b.push(o);
+  // colours
+  const fog = C.fog;
+  const COLS = {
+    solid: [C.body, C.top, C.deep], wall: [C.body, C.top, C.deep], ice: [[150, 195, 230], [215, 238, 250], [120, 160, 200]],
+    break: [C.deep, C.topHi, C.deep], plat: [C.platHi, C.plat, C.deep], mplat: [C.platHi, C.platHi, C.deep], spike: [C.spike, C.spike, C.spike],
+  };
+  const { px, depth, mask } = B;
+  px.fill(0); depth.fill(1e9);
+  const t0 = performance.now(), ST = G.fpStep || 2;
+  const cache = new Map(), W2 = Math.ceil(VW / ST), MAXD = 520;
+  const lavaCol = pack(225 + Math.sin(G.t * 4) * 25 | 0, 85, 30);
+  for (let c = 0; c < W2; c++) {
+    const camX = 2 * (c + 0.5) / W2 - 1;
+    const rdx = cy - sy * FP_PLANE * camX, rdz = sy + cy * FP_PLANE * camX;
+    mask.fill(0); let covered = 0;
+    let cx = Math.floor(ex / 16), ck = Math.floor((ez + 32) / 64);
+    const stepX = rdx > 0 ? 1 : -1, stepK = rdz > 0 ? 1 : -1;
+    const dX = Math.abs(16 / rdx), dK = Math.abs(64 / rdz);
+    let tX = rdx !== 0 ? ((stepX > 0 ? (cx + 1) * 16 : cx * 16) - ex) / rdx : 1e9;
+    let tK = rdz !== 0 ? ((stepK > 0 ? (ck + 1) * 64 - 32 : ck * 64 - 32) - ez) / rdz : 1e9;
+    let tIn = 0, sideK = false;
+    const x0 = c * ST;
+    const span = (y0, y1, col, d, seam, seamCol) => {
+      let a = Math.max(0, Math.ceil(y0)), b = Math.min(VH, Math.ceil(y1));
+      for (let y = a; y < b; y++) {
+        if (mask[y]) continue;
+        mask[y] = 1; covered++;
+        let cc = col;
+        if (seam) { const wy = ey + (y - hz) * d / FP_F; if ((wy & 15) === 0 || ((wy + 0.5) & 15) === 0) cc = seamCol; }
+        const i = y * VW + x0; for (let q = 0; q < ST && x0 + q < VW; q++) px[i + q] = cc; depth[y * W2 + c] = d;
+      }
+    };
+    const floorSpan = (y0, y1, wy, rgb, s0, lava) => {
+      let a = Math.max(0, Math.ceil(y0)), b = Math.min(VH, Math.ceil(y1));
+      for (let y = a; y < b; y++) {
+        if (mask[y]) continue;
+        const d = (wy - ey) * FP_F / (y - hz + 0.0001);
+        if (!(d > 0)) continue;
+        mask[y] = 1; covered++;
+        let cc;
+        if (lava) cc = lavaCol;
+        else {
+          const s = fpLight(d, C), wx = ex + rdx * d, wz = ez + rdz * d;
+          const edge = ((wx & 15) < 1) || (((wz + 32) % 64 + 64) % 64 < 1.2);
+          cc = shadePack(rgb, edge ? s * 0.72 : s, fog);
+        }
+        const i = y * VW + x0; for (let q = 0; q < ST && x0 + q < VW; q++) px[i + q] = cc; depth[y * W2 + c] = d;
+      }
+    };
+    for (let n = 0; n < 90 && covered < VH; n++) {
+      const tOut = Math.min(tX, tK);
+      const dIn = Math.max(tIn, FP_NEAR);
+      if (dIn > MAXD) break;
+      if (tOut > FP_NEAR) {
+        const runs = cellRuns(ck, cx, cache);
+        const sIn = fpLight(dIn, C) * (sideK ? 0.78 : 1);
+        // faces at the entry boundary first (nearest), then tops/undersides inside the cell
+        if (tIn > FP_NEAR) for (const [y0, y1, kind] of runs) {
+          const yA = hz + (y0 - ey) * FP_F / dIn, yB = hz + (y1 - ey) * FP_F / dIn;
+          if (kind === 'lava') span(yA, yB, lavaCol, dIn);
+          else { const cs = COLS[kind]; span(yA, yB, shadePack(cs[0], sIn * 0.9, fog), dIn, kind === 'solid' || kind === 'wall', shadePack(cs[2], sIn * 0.8, fog)); }
+        }
+        const dO = Math.min(tOut, MAXD);
+        for (const [y0, y1, kind] of runs) {
+          const cs = COLS[kind];
+          if (y0 > ey) floorSpan(hz + (y0 - ey) * FP_F / dO, hz + (y0 - ey) * FP_F / dIn, y0, kind === 'lava' ? null : cs[1], 1, kind === 'lava');
+          if (y1 < ey) floorSpan(hz + (y1 - ey) * FP_F / dIn, hz + (y1 - ey) * FP_F / dO, y1, kind === 'lava' ? null : cs[2], 1, kind === 'lava');
+        }
+      }
+      tIn = tOut;
+      if (tX < tK) { cx += stepX; tX += dX; sideK = false; } else { ck += stepK; tK += dK; sideK = true; }
+    }
+  }
+  B.x.putImageData(B.img, 0, 0);
+  B.W2 = W2; B.ST = ST;
+  const ms = performance.now() - t0; G.fpMs = (G.fpMs || ms) * 0.95 + ms * 0.05;
+  if (G.fpMs > 11 && ST < 4) { G.fpStep = ST + 1; G.fpMs = 8; } else if (G.fpMs < 4 && ST > 2) { G.fpStep = ST - 1; G.fpMs = 8; }
+  g.drawImage(B.c, 0, 0);
+  // sprites
+  const sprites = [];
+  const pushS = (o, ax, ay, az) => {
+    const dx = ax - ex, dz = az - ez, d = dx * cy + dz * sy, u = -dx * sy + dz * cy;
+    if (d < 10 || d > MAXD) return;
+    o.d = d; o.sx = VW / 2 + u * FP_F / d; o.ay = ay; o.ax = ax; sprites.push(o);
   };
   for (const e of G.ents) {
     if (e.dead) continue;
@@ -2458,144 +2571,61 @@ function drawFP(g) {
     if (e.type === 'ember' || e.type === 'star' || e.type === 'heart') { ax = e.x; ay = e.y; }
     else if (e.w) { ax = e.x + e.w / 2; ay = e.y + e.h; }
     else { ax = e.x; ay = e.y; }
-    const d = depth(ax), ln = e.lane || 0;
-    if (d > 10) add({ d, kind: 'ent', e, ax, ay, z: ln * LW }, ax, ln);
+    pushS({ kind: 'ent', e }, ax, ay, (e.lane || 0) * LW);
   }
-  for (const p of L.plats) if (!p.gone) { const dn = Math.min(depth(p.x), depth(p.x + p.w)); if (dn + p.w > FP_NEAR) add({ d: Math.max(dn, FP_NEAR) + 0.01, kind: 'plat', p, dn }, face > 0 ? Math.max(p.x, FPV.eyeX) : Math.min(p.x + p.w - 1, FPV.eyeX), 0); }
-  for (const s of L.springs) { const d = depth(s.x + 8); if (d > 10) add({ d, kind: 'spring', s, z: 0 }, s.x + 8, 0); }
-  for (const s of L.saws) { const d = depth(s.x); if (d > 10) add({ d, kind: 'saw', s, z: 0 }, s.x, 0); }
-  for (const p of G.projs) { const d = depth(p.x); if (d > 10 && !(p.delay > 0)) add({ d, kind: 'proj', p, z: (p.lane || 0) * LW }, p.x, p.lane || 0); }
-  for (const b of G.bolts) { const d = depth(b.x); if (d > 8) add({ d, kind: 'bolt', b, z: b.z || 0 }, b.x, b.lane || 0); }
-  const laneOrder = [];
-  for (let k = -NL; k <= NL; k++) laneOrder.push(k);
-  laneOrder.sort((a, b) => Math.abs(b * LW - FPV.camZ) - Math.abs(a * LW - FPV.camZ));
-  for (let k = FP_COLS; k >= 0; k--) {
-    const tx = etx + k * face;
-    let d0 = face > 0 ? tx * 16 - FPV.eyeX : FPV.eyeX - (tx * 16 + 16), d1 = d0 + 16;
-    if (d1 <= FP_NEAR) continue;
-    d0 = Math.max(d0, FP_NEAR);
-    for (const ln of laneOrder) {
-      const za = ln * LW - LW / 2, zb = ln * LW + LW / 2;
-      const xs = [fpX(za, d0), fpX(zb, d0), fpX(za, d1), fpX(zb, d1)];
-      if (Math.max(...xs) < -2 || Math.min(...xs) > VW + 2) continue;
-      drawLaneColumn(g, ln, tx, d0, d1, za, zb, C, 0);
-      const b = buckets.get(k * 32 + ln + 16);
-      if (b) { b.sort((p, q) => q.d - p.d); for (const o of b) drawFPObj(g, o, C); }
-      drawLaneColumn(g, ln, tx, d0, d1, za, zb, C, 1);
-    }
-  }
+  for (const s of L.springs) pushS({ kind: 'spring', s }, s.x + 8, s.y + 16, 0);
+  for (const s of L.saws) pushS({ kind: 'saw', s }, s.x, s.y + s.r, 0);
+  for (const p of G.projs) if (!(p.delay > 0)) pushS({ kind: 'proj', p }, p.x, p.y, (p.lane || 0) * LW);
+  for (const b of G.bolts) pushS({ kind: 'bolt', b }, b.x, b.y, b.z || 0);
+  sprites.sort((a, b) => b.d - a.d);
+  for (const o of sprites) drawFPSprite(g, o, C, B);
   // held rifle
-  const sway = Math.sin(G.t * 7) * (Math.abs(P.vx) > 20 ? 4 : 1), kick = (G.fpKick || 0) * 6, gy0 = VH + (P.onGround ? 0 : -4) + kick;
+  const sway = Math.sin(G.t * 7) * (Math.abs(P.vx) > 20 || Math.abs(P.vz || 0) > 20 ? 4 : 1), kick = (G.fpKick || 0) * 6, gy0 = VH + (P.onGround ? 0 : -4) + kick;
   const gx = VW / 2 + 60 + sway;
   g.fillStyle = '#2a2c32'; g.beginPath(); g.moveTo(gx - 10, gy0); g.lineTo(gx - 2, gy0 - 62); g.lineTo(gx + 8, gy0 - 62); g.lineTo(gx + 26, gy0); g.fill();
   g.fillStyle = '#3e4148'; g.beginPath(); g.moveTo(gx - 2, gy0 - 62); g.lineTo(gx + 1, gy0 - 82); g.lineTo(gx + 6, gy0 - 82); g.lineTo(gx + 8, gy0 - 62); g.fill();
   rect(g, gx - 6, gy0 - 40, 26, 10, '#d9a070'); rect(g, gx - 6, gy0 - 40, 26, 2, '#e8b888');
   rect(g, gx + 24, gy0 - 34, 12, 34, '#d9a070');
   if (G.muzzle > 0) { g.globalCompositeOperation = 'lighter'; warmGlow(g, gx + 3, gy0 - 88, 40, 0.8); g.globalCompositeOperation = 'source-over'; circ(g, gx + 3, gy0 - 88, 7, '#fff2a0'); }
-  rect(g, VW / 2 - 4, FPV.hz - 1, 3, 2, 'rgba(255,230,190,0.7)'); rect(g, VW / 2 + 2, FPV.hz - 1, 3, 2, 'rgba(255,230,190,0.7)');
-  // vignette
+  rect(g, VW / 2 - 5, VH / 2 - 1, 3, 2, 'rgba(255,230,190,0.75)'); rect(g, VW / 2 + 3, VH / 2 - 1, 3, 2, 'rgba(255,230,190,0.75)');
+  rect(g, VW / 2 - 1, VH / 2 - 5, 2, 3, 'rgba(255,230,190,0.75)'); rect(g, VW / 2 - 1, VH / 2 + 3, 2, 3, 'rgba(255,230,190,0.75)');
   const vg = g.createRadialGradient(VW / 2, VH / 2, VH * 0.35, VW / 2, VH / 2, VW * 0.65);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)');
   g.fillStyle = vg; g.fillRect(0, 0, VW, VH);
   drawLaneMap(g);
   if (G.hurtT > 0) { g.fillStyle = `rgba(170,20,10,${G.hurtT})`; g.fillRect(0, 0, VW, VH); }
 }
-
-function drawLaneColumn(g, k, tx, d0, d1, za, zb, C, pass) {
-  const Lk = laneL(k), fog = C.fog, ey = FPV.eyeY, face = FPV.face;
-  const s0 = fpLight(d0 + Math.abs(k * LW - FPV.camZ) * 0.6, C);
-  const S = (ty) => Lk ? solidLike(Lk, tx, ty) : true;
-  const Tt = (ty) => Lk ? tileAt(Lk, tx, ty) : T.SOLID;
-  if (pass === 0) {
-    // tops & undersides
-    for (let ty = 0; ty < 17; ty++) {
-      const t = Tt(ty), solid = S(ty), top = ty * 16, bot = top + 16;
-      if (solid) {
-        if (top > ey && !S(ty - 1)) {
-          const col = t === T.ICE ? [210, 235, 250] : t === T.BREAK ? C.topHi : C.top;
-          fpQuad(g, d0, d1, top, za, zb, shadeRGB(col, s0, fog));
-          if (d1 - d0 > 8 && (tx & 1)) fpQuad(g, d0, d0 + 1.5, top, za, zb, shadeRGB(C.topHi, s0, fog));
-        }
-        if (bot < ey && ty < 16 && !S(ty + 1)) fpQuad(g, d0, d1, bot, za, zb, shadeRGB(C.deep, s0 * 0.8, fog));
-      } else if (t === T.ONEWAY && top > ey) fpQuad(g, d0, d1, top, za, zb, shadeRGB(C.plat, s0, fog));
-      else if (t === T.LAVA && Tt(ty - 1) !== T.LAVA && top + 6 > ey)
-        fpQuad(g, d0, d1, top + 6, za, zb, `rgb(${220 + Math.sin(G.t * 4 + tx) * 30 | 0},${80 + Math.sin(G.t * 3 + tx * 0.7) * 30 | 0},30)`);
-    }
-    // side walls facing the camera (merged vertical runs)
-    for (const dir of [1, -1]) {
-      const zs = dir > 0 ? zb : za;
-      if (!(dir > 0 ? FPV.camZ > zs : FPV.camZ < zs)) continue;
-      let start = -1;
-      const col = shadeRGB(C.body, s0 * 0.7, fog);
-      for (let ty = 0; ty <= 17; ty++) {
-        const vis = ty < 17 && S(ty) && !laneSolid(k + dir, tx, ty);
-        if (vis && start < 0) start = ty;
-        if (!vis && start >= 0) { fpSide(g, zs, d0, d1, start * 16, ty * 16, col); fpSide(g, zs, d0, d1, start * 16, start * 16 + 2, shadeRGB(C.top, s0 * 0.8, fog)); start = -1; }
-      }
-    }
+function drawFPSprite(g, o, C, B) {
+  const k = FP_F / o.d, sy = FPV.hz + (o.ay - FPV.ey) * k, W2 = B.W2;
+  const vis = (x, y) => { const c = Math.floor(x / B.ST), r = Math.floor(y); if (c < 0 || c >= W2) return false; if (r < 0 || r >= VH) return true; return B.depth[r * W2 + c] > o.d - 4; };
+  if (o.kind === 'bolt' || o.kind === 'proj' && (o.p.kind === 'orb' || o.p.kind === 'bullet')) {
+    if (!vis(o.sx, sy)) return;
+    const r = Math.max(1.5, (o.kind === 'bolt' ? (o.b.flame ? 5 : 2.5) : 3.5) * k), c = o.kind === 'bolt' ? WCOL[o.b.w] || '#fff1c0' : '#ff5a6a';
+    g.globalCompositeOperation = 'lighter'; warmGlow(g, o.sx, sy, r * 4, 0.6, o.kind === 'bolt' ? undefined : '255,60,80'); g.globalCompositeOperation = 'source-over';
+    circ(g, o.sx, sy, r, c);
     return;
   }
-  // fronts (merged runs of plain solid)
-  const nearSolid = ty => Lk ? solidLike(Lk, tx - face, ty) : true;
-  let start = -1;
-  const bodyCol = shadeRGB(C.body, s0 * 0.85, fog), edgeCol = shadeRGB(C.top, s0, fog);
-  for (let ty = 0; ty <= 17; ty++) {
-    const t = ty < 17 ? Tt(ty) : -1, plain = ty < 17 && t === T.SOLID && S(ty) && !nearSolid(ty);
-    if (plain && start < 0) start = ty;
-    if (!plain && start >= 0) { fpFront(g, d0, za, zb, start * 16, ty * 16, bodyCol, edgeCol); start = -1; }
-    if (ty >= 17 || !Lk) continue;
-    const top = ty * 16, bot = top + 16, nT = tileAt(Lk, tx - face, ty);
-    if ((t === T.ICE || t === T.BREAK || t === T.VENT || t === T.CRUMBLE) && S(ty) && !nearSolid(ty)) {
-      fpFront(g, d0, za, zb, top, bot, shadeRGB(t === T.BREAK ? C.deep : t === T.ICE ? [150, 195, 230] : C.plat, s0 * 0.85, fog), shadeRGB(t === T.ICE ? [240, 250, 255] : C.top, s0, fog));
-      if (t === T.BREAK) { const y0 = fpY(top, d0), y1 = fpY(bot, d0), xa = fpX(za, d0), xb = fpX(zb, d0); g.strokeStyle = shadeRGB(C.topHi, s0, fog); g.lineWidth = 1; g.beginPath(); g.moveTo(xa * 0.8 + xb * 0.2, y0); g.lineTo((xa + xb) / 2, (y0 + y1) / 2); g.lineTo(xa * 0.6 + xb * 0.4, y1); g.stroke(); }
-    } else if (t === T.ONEWAY && nT !== T.ONEWAY) fpFront(g, d0, za, zb, top, top + 5, shadeRGB(C.platHi, s0, fog));
-    else if (t === T.LAVA && nT !== T.LAVA && Tt(ty - 1) !== T.LAVA) fpFront(g, d0, za, zb, top + 6, bot, 'rgb(216,64,26)');
-    else if (t === T.SPIKEUP || t === T.SPIKEDN) {
-      const d = d0 + 8, y0 = fpY(top, d), y1 = fpY(bot, d), xa = Math.min(fpX(za, d), fpX(zb, d)), xw = Math.abs(fpX(zb, d) - fpX(za, d));
-      g.fillStyle = shadeRGB(C.spike, fpLight(d, C), fog);
-      for (let i = 0; i < 6; i++) {
-        const xl = xa + i * xw / 6, xr = xl + xw / 6;
-        g.beginPath();
-        if (t === T.SPIKEUP) { g.moveTo(xl, y1); g.lineTo((xl + xr) / 2, y0 + (y1 - y0) * 0.4); g.lineTo(xr, y1); }
-        else { g.moveTo(xl, y0); g.lineTo((xl + xr) / 2, y1 - (y1 - y0) * 0.4); g.lineTo(xr, y0); }
-        g.fill();
-      }
-    }
+  // render the sprite at native size, then blit visible vertical strips
+  const S = B.sx; S.setTransform(1, 0, 0, 1, 0, 0); S.clearRect(0, 0, 64, 80);
+  S.save(); S.translate(32 - o.ax, 72 - o.ay);
+  if (o.kind === 'ent') drawEnt(S, o.e, G);
+  else if (o.kind === 'spring') drawSpring(S, o.s, G);
+  else if (o.kind === 'saw') drawSaw(S, o.s, G.t);
+  else if (o.kind === 'proj') drawProj(S, o.p);
+  S.restore();
+  const left = o.sx - 32 * k, top = sy - 72 * k, wpx = 64 * k;
+  if (left > VW || left + wpx < 0) return;
+  const e = o.e, glow = e && (e.type === 'ember' || e.type === 'star' || e.type === 'check' || e.type === 'beacon' || e.type === 'gate' || e.type === 'wpn');
+  const midY = sy - 8 * k;
+  if (glow && vis(o.sx, midY)) { g.globalCompositeOperation = 'lighter'; warmGlow(g, o.sx, midY, Math.min(160, (e.type === 'ember' ? 10 : e.type === 'gate' ? 50 : 26) * k), 0.4); g.globalCompositeOperation = 'source-over'; }
+  g.globalAlpha = glow ? 1 : clamp(fpLight(o.d, C) * 1.4, 0.2, 1);
+  const step = Math.max(1, Math.min(4, Math.round(wpx / 32)));
+  for (let x = Math.max(0, Math.floor(left)); x < Math.min(VW, left + wpx); x += step) {
+    if (!vis(x, midY)) continue;
+    const srcX = Math.floor((x - left) / wpx * 64);
+    g.drawImage(B.spr, srcX, 0, 1, 80, x, top, step, 80 * k);
   }
-  if (Lk && k === 0) for (const u of Lk.updrafts) if (u.x === tx * 16) {
-    const d = (d0 + d1) / 2, y0 = fpY(u.y, d), y1 = fpY(u.y + u.h, d), xa = fpX(za + 8, d), xb = fpX(zb - 8, d);
-    g.globalAlpha = 0.12; g.fillStyle = '#ffd9a0'; g.fillRect(Math.min(xa, xb), y0, Math.abs(xb - xa), y1 - y0); g.globalAlpha = 1;
-  }
-}
-
-function fpBillboard(g, ax, ay, d, z, fn) {
-  const k = FP_F / d, sx = fpX(z, d), sy = fpY(ay, d);
-  g.save(); g.translate(sx, sy); g.scale(k * (FPV.face < 0 ? -1 : 1), k); g.translate(-ax, -ay); fn(); g.restore();
-}
-function drawFPObj(g, o, C) {
-  const a = clamp(fpLight(o.d + Math.abs((o.z || 0) - FPV.camZ) * 0.6, C) * 1.4, 0.15, 1);
-  if (o.kind === 'ent') {
-    const e = o.e, glow = e.type === 'ember' || e.type === 'star' || e.type === 'check' || e.type === 'beacon' || e.type === 'gate' || e.type === 'wpn';
-    g.globalAlpha = glow ? 1 : a;
-    if (glow) {
-      const k = FP_F / o.d, sy = fpY(o.ay - (e.type === 'gate' ? 24 : e.type === 'check' ? 28 : 0), o.d);
-      g.globalCompositeOperation = 'lighter'; warmGlow(g, fpX(o.z, o.d), sy, Math.min(200, (e.type === 'ember' ? 10 : e.type === 'gate' ? 50 : 30) * k), e.type === 'gate' ? 0.35 : 0.4, e.type === 'gate' ? '255,200,120' : undefined); g.globalCompositeOperation = 'source-over';
-    }
-    fpBillboard(g, o.ax, o.ay, o.d, o.z, () => drawEnt(g, e, G));
-    g.globalAlpha = 1;
-  } else if (o.kind === 'plat') {
-    const p = o.p, n = Math.max(FP_NEAR, o.dn), f = o.dn + p.w, s = fpLight(n, C);
-    if (p.y > FPV.eyeY) fpQuad(g, n, f, p.y, -LW / 2, LW / 2, shadeRGB(C.platHi, s, C.fog));
-    else fpQuad(g, n, f, p.y + 8, -LW / 2, LW / 2, shadeRGB(C.deep, s, C.fog));
-    if (o.dn >= FP_NEAR) fpFront(g, n, -LW / 2, LW / 2, p.y, p.y + 8, shadeRGB(C.plat, s, C.fog));
-  } else if (o.kind === 'spring') fpBillboard(g, o.s.x + 8, o.s.y + 16, o.d, 0, () => drawSpring(g, o.s, G));
-  else if (o.kind === 'saw') fpBillboard(g, o.s.x, o.s.y + o.s.r, o.d, 0, () => drawSaw(g, o.s, G.t));
-  else if (o.kind === 'proj') fpBillboard(g, o.p.x, o.p.y, o.d, o.z, () => drawProj(g, o.p));
-  else if (o.kind === 'bolt') {
-    const k = FP_F / o.d, sx = fpX(o.z, o.d), sy = fpY(o.b.y, o.d), r = Math.max(1.5, (o.b.flame ? 5 : 2.5) * k), c = WCOL[o.b.w] || '#fff1c0';
-    g.globalCompositeOperation = 'lighter'; warmGlow(g, sx, sy, r * 4, 0.6); g.globalCompositeOperation = 'source-over';
-    circ(g, sx, sy, r, c);
-  }
+  g.globalAlpha = 1;
 }
 
 // top-down strip map of the lanes around you
@@ -2622,7 +2652,9 @@ function drawLaneMap(g) {
     const c = e.enemy ? '#ff5a4a' : e.type === 'wpn' ? '#8be3ff' : e.type === 'ember' ? '#ffb347' : e.type === 'heart' ? '#ff8aa0' : e.type === 'star' ? '#ffd84a' : e.type === 'gate' ? '#ffe2a0' : null;
     if (c) { g.fillStyle = c; g.fillRect(x0 + i * 2, y0 + row * 3 + 1, 2, 1); }
   }
-  g.fillStyle = '#ffffff'; g.fillRect(x0 + 8 * 2, y0 + Math.round((P.z || 0) / LW * face + lanes) * 3, 2, 3);
+  const px0 = x0 + 8 * 2 + 1, py0 = y0 + ((P.z || 0) / LW * face + lanes) * 3 + 1.5;
+  g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1; g.beginPath(); g.moveTo(px0, py0); g.lineTo(px0 + Math.cos(G.yaw) * face * 7, py0 + Math.sin(G.yaw) * face * 7 * (3 / 2 / 4)); g.stroke();
+  g.fillStyle = '#ffffff'; g.fillRect(px0 - 1, py0 - 1.5, 2, 3);
 }
 
 // ---------- gates ----------
@@ -2638,9 +2670,9 @@ function drawGate(g, e) {
 }
 function setFireLabel() { }
 function fpHint() {
-  return G.lastInput === 'touch' ? 'First person. Pad up/down walks, left/right steps sideways off the path' :
-    G.lastInput === 'pad' ? 'First person. Stick up/down walks, left/right steps sideways off the path' :
-      'First person. ↑↓ walk, ←→ step sideways off the path. There is more out there.';
+  return G.lastInput === 'touch' ? 'First person. Drag the screen to look around. Pad walks and strafes' :
+    G.lastInput === 'pad' ? 'First person. Right stick looks around, left stick walks and strafes' :
+      'First person. Mouse or ←→ to look, W/S or ↑↓ to walk, A/D to strafe. Click to grab the mouse';
 }
 // ===================== COMBAT: weapons, bullets, troopers, weapon pods, hero =====================
 const WEAPONS = {
@@ -2667,6 +2699,18 @@ function fireWeapon() {
   const [ax, ay] = G.aim;
   const ox = P.x + 5 + ax * 9, oy = (P.crouch ? P.y + 10 : P.y + 4) + ay * 8;
   const base = Math.atan2(ay, ax);
+  if (fp) {
+    const cp = Math.cos(G.pitch), sp = Math.sin(G.pitch);
+    for (let i = 0; i < W.n; i++) {
+      const off = W.n > 1 ? (i - (W.n - 1) / 2) * W.spread : 0;
+      const a = G.yaw + off + (W.jitter ? (Math.random() - 0.5) * W.jitter : 0);
+      const dx = Math.cos(a) * cp, dz = Math.sin(a) * cp, dy = -sp;
+      const z = (P.z || 0) + dz * 6;
+      G.bolts.push({ lane: Math.round(z / LW), z, vz: dz * W.speed, x: P.x + 5 + dx * 6, y: P.y + 3 + dy * 6, vx: dx * W.speed, vy: dy * W.speed, life: W.life, dmg: W.dmg, pierce: !!W.pierce, flame: !!W.flame, w: G.weapon, hit: W.pierce ? new Set() : null, t: 0 });
+    }
+    G.muzzle = 0.06; G.fpKick = 1; sfx('gun' + G.weapon);
+    return;
+  }
   for (let i = 0; i < W.n; i++) {
     const off = W.n > 1 ? (i - (W.n - 1) / 2) * W.spread : 0;
     const a = base + off + (W.jitter ? (Math.random() - 0.5) * W.jitter : 0);
@@ -2696,6 +2740,7 @@ function updateBolts(dt) {
     b.t += dt;
     if (b.flame) b.vy += Math.sin(b.t * 28) * 30;
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    if (b.vz) { b.z += b.vz * dt; b.lane = Math.round(b.z / LW); if (Math.abs(b.lane) >= NL) { b.life = 0; continue; } }
     if (isSolidT(laneL(b.lane || 0) || L, Math.floor(b.x / 16), Math.floor(b.y / 16))) { b.life = 0; burst(G, b.x, b.y, 4, WCOL[b.w], 60, 0, true); continue; }
     const box = { x: b.x - 3, y: b.y - 3, w: 6, h: 6 };
     for (const e of G.ents) {
@@ -2947,14 +2992,16 @@ const G = {
 
 // ---------- input ----------
 const ACTS = ['left', 'right', 'up', 'down', 'jump', 'dash', 'fire', 'pause', 'confirm', 'mute'];
-const kb = {}, tc = {}, gp = {}, latch = {}, prev = {};
+const kb = {}, tc = {}, gp = {}, latch = {}, prev = {}, kraw = {};
 const KEYS = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', KeyZ: 'jump', Space: 'jump', KeyK: 'jump', KeyX: 'fire', KeyJ: 'fire', KeyF: 'fire', ShiftLeft: 'dash', ShiftRight: 'dash', KeyC: 'dash', KeyL: 'dash', Escape: 'pause', KeyP: 'pause', Enter: 'confirm', KeyM: 'mute' };
 addEventListener('keydown', e => {
+  kraw[e.code] = true;
+  if (G.mode === 'fp' && (e.code === 'KeyQ' || e.code === 'KeyE')) e.preventDefault();
   const a = KEYS[e.code]; if (!a) return;
   e.preventDefault(); if (!kb[a]) latch[a] = true; kb[a] = true; audioInit(); G.lastInput = 'kb';
 });
-addEventListener('keyup', e => { const a = KEYS[e.code]; if (a) kb[a] = false; });
-addEventListener('blur', () => { for (const k in kb) kb[k] = false; for (const k in tc) tc[k] = false; if (G.scene === 'play' && !G.overlay) openPause(); });
+addEventListener('keyup', e => { kraw[e.code] = false; const a = KEYS[e.code]; if (a) kb[a] = false; });
+addEventListener('blur', () => { for (const k in kb) kb[k] = false; for (const k in kraw) kraw[k] = false; for (const k in tc) tc[k] = false; if (G.scene === 'play' && !G.overlay) openPause(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && G.scene === 'play' && !G.overlay) openPause(); });
 function setT(a, v) { if (v && !tc[a]) latch[a] = true; tc[a] = v; }
 function setupTouch() {
@@ -2989,6 +3036,9 @@ function pollPad() {
   if (!p) return;
   const b = i => p.buttons[i] && p.buttons[i].pressed, ax = p.axes[0] || 0, ay = p.axes[1] || 0;
   const st = { left: ax < -0.4 || b(14), right: ax > 0.4 || b(15), up: ay < -0.5 || b(12), down: ay > 0.5 || b(13), jump: b(0) || b(3), fire: b(2) || b(1) || b(7), dash: b(5) || b(4) || b(6), pause: b(9) };
+  const lx = p.axes[2] || 0, ly = p.axes[3] || 0;
+  G.padLookX = Math.abs(lx) > 0.18 ? lx : 0; G.padLookY = Math.abs(ly) > 0.18 ? ly : 0;
+  if (G.padLookY) G.lookIdle = 0;
   let any = false;
   for (const a in st) { if (st[a] && !gp[a]) latch[a] = true; gp[a] = !!st[a]; any = any || st[a]; }
   if (any) G.lastInput = 'pad';
@@ -3011,8 +3061,28 @@ cv.addEventListener('pointerdown', e => {
   const r = cv.getBoundingClientRect();
   G.click = { x: (e.clientX - r.left) / r.width * VW, y: (e.clientY - r.top) / r.height * VH };
   if (e.pointerType === 'touch') { G.lastInput = 'touch'; if (!G.touch) { G.touch = true; layout(); } }
-  if (G.scene === 'play' && !G.overlay && e.pointerType === 'mouse') G.mouseFire = true;
+  if (G.scene === 'play' && !G.overlay && e.pointerType === 'mouse') {
+    G.mouseFire = true;
+    if (G.mode === 'fp' && document.pointerLockElement !== cv && cv.requestPointerLock) { try { const r = cv.requestPointerLock(); if (r && r.catch) r.catch(() => { }); } catch (_) { } }
+  }
+  if (G.scene === 'play' && G.mode === 'fp' && e.pointerType !== 'mouse') { G.dragId = e.pointerId; G.dragX = e.clientX; G.dragY = e.clientY; }
 });
+cv.addEventListener('pointermove', e => {
+  if (G.mode !== 'fp' || G.scene !== 'play' || G.overlay) return;
+  const r = cv.getBoundingClientRect(), k = VW / r.width;
+  if (e.pointerType === 'mouse') {
+    if (document.pointerLockElement === cv || (e.buttons & 1)) { G.lookDX = (G.lookDX || 0) + (e.movementX || 0) * 0.0042; G.lookDY = (G.lookDY || 0) + (e.movementY || 0) * 0.0032; G.lookIdle = 0; }
+  } else if (e.pointerId === G.dragId) {
+    G.lookDX = (G.lookDX || 0) + (e.clientX - G.dragX) * k * 0.012; G.lookDY = (G.lookDY || 0) + (e.clientY - G.dragY) * k * 0.009;
+    G.dragX = e.clientX; G.dragY = e.clientY; G.lookIdle = 0;
+  }
+});
+document.addEventListener('mousemove', e => {
+  if (document.pointerLockElement === cv && G.mode === 'fp' && e.target !== cv) { G.lookDX = (G.lookDX || 0) + (e.movementX || 0) * 0.0042; G.lookDY = (G.lookDY || 0) + (e.movementY || 0) * 0.0032; G.lookIdle = 0; }
+});
+cv.addEventListener('pointerup', e => { if (e.pointerId === G.dragId) G.dragId = null; });
+cv.addEventListener('pointercancel', e => { if (e.pointerId === G.dragId) G.dragId = null; });
+function releaseLock() { try { if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock(); } catch (_) { } }
 addEventListener('pointerup', () => { G.mouseFire = false; });
 addEventListener('touchstart', () => { if (!G.touch) { G.touch = true; G.lastInput = 'touch'; layout(); } }, { passive: true });
 
@@ -3047,7 +3117,7 @@ function startStage(w, i) {
     embers: 0, starsGot: [false, false, false], time: 0, deaths: 0, boss: arena ? makeBoss(w) : null, shake: 0, hitstop: 0, flash: 0,
     banner: 3.2, toast: null, wind: 0, darkBoost: 0, results: null, lavaRise: 0,
   });
-  G.mode = 'side'; G.bolts = []; G.fpTurn = 0; G.fpFace = 1; G.fpCD = 0; G.fpSeen = false; G.weapon = 'N'; G.fireCD = 0; G.aim = [1, 0]; G.runT = 3; G.podT = 6; G.escape = null; G.muzzle = 0;
+  G.yaw = 0; G.pitch = 0; G.mode = 'side'; G.bolts = []; G.fpTurn = 0; G.fpFace = 1; G.fpCD = 0; G.fpSeen = false; G.weapon = 'N'; G.fireCD = 0; G.aim = [1, 0]; G.runT = 3; G.podT = 6; G.escape = null; G.muzzle = 0;
   G.podPlan = arena ? [] : planPods(L, w * 31 + i * 7 + 5);
   G.lanes = null; G.laneSeen = false;
   if (L.fpZones.length) {
@@ -3073,7 +3143,7 @@ function respawn() {
     else if (ob.hp < G.boss.maxHp) { G.boss.hp = ob.hp; if (G.boss.enableLava && ob.hp <= 2) G.boss.enableLava(G); G.toast = { text: 'The guardian is still wounded', t: 2.5 }; }
     return;
   }
-  G.bolts = []; G.weapon = 'N';
+  G.bolts = []; G.weapon = 'N'; if (G.mode === 'fp') { G.mode = 'side'; releaseLock(); }
   const P = newPlayer(G.checkpoint.x, G.checkpoint.y); P.sx = 1; P.sy = 1;
   G.P = P; G.hp = MAXHP; G.inv = 1.0; G.pstate = 'alive'; G.projs = []; G.safe = { x: P.x, y: P.y };
 }
@@ -3183,11 +3253,9 @@ function updatePlay(dt, inp) {
     P.crouch = !!(inp.down && P.onGround && !inp.left && !inp.right && !inp.jumpPressed && P.dashT <= 0);
     if (G.mode === 'fp') {
       P.crouch = false;
-      const f = G.fpFace || 1;
-      pin = Object.assign({}, inp, { left: false, right: false, up: false, down: false });
-      if (inp.up) { if (f > 0) pin.right = true; else pin.left = true; }
-      else if (inp.down) { if (f > 0) pin.left = true; else pin.right = true; }
-      fpStrafe(P, (inp.right ? 1 : 0) - (inp.left ? 1 : 0), dt);
+      G.lookIdle = (G.lookIdle || 0) + dt;
+      const mv = fpControl(P, inp, dt);
+      pin = Object.assign({}, inp, { left: mv.left, right: mv.right, up: false, down: false });
     }
     G.aim = aimVec(inp, P);
     if (P.crouch && G.mode !== 'fp') G.aim = [P.face, 0];
@@ -3199,6 +3267,7 @@ function updatePlay(dt, inp) {
     const want = fpZoneAt(L, P.x + 5) ? 'fp' : 'side';
     if (want !== G.mode) {
       G.mode = want; G.fade = 0.7; G.fpFace = P.face; G.fpTurn = 0; P.z = 0; P.vz = 0; P.lane = 0; sfx('portal'); setFireLabel(want === 'fp');
+      if (want === 'fp') { G.yaw = P.face > 0 ? 0 : Math.PI; G.pitch = 0; } else { P.face = Math.cos(G.yaw) >= 0 ? 1 : -1; releaseLock(); }
       if (want === 'side') G.camX = clamp(P.x + 5 - VW / 2 + P.face * 34, 0, L.w * 16 - VW);
       if (want === 'fp' && !G.fpSeen) { G.fpSeen = true; G.toast = { text: fpHint(), t: 4.5 }; }
     }
@@ -3430,7 +3499,7 @@ function finishStage() {
   if (G.overlay === 'endingIntro') { G.scene = 'ending'; G.overlay = null; G.endT = 0; playSong('end'); }
   else playSong('map');
 }
-function openPause() { G.overlay = 'pause'; G.menu = 0; G.overlayT = 0.15; }
+function openPause() { releaseLock(); G.overlay = 'pause'; G.menu = 0; G.overlayT = 0.15; }
 
 const TUT = [
   { kb: 'Arrows move. Z jumps. Hold X to fire: aim with ↑ and ↓, crouch with ↓. Shoot the flying pods for new guns. 3 Mixtapes hide in every mission.', touch: 'Pad moves and aims (↓ crouches). JUMP jumps, hold FIRE to shoot. Shoot the flying pods for new guns. 3 Mixtapes per mission.' },
