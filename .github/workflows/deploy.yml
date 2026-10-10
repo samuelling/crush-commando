@@ -30,7 +30,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Build and check
         run: |
@@ -40,9 +40,22 @@ jobs:
       - name: Deploy multiplayer server to Cloudflare
         id: worker
         if: env.CLOUDFLARE_API_TOKEN != ''
+        continue-on-error: true
         working-directory: server
+        env:
+          NO_COLOR: '1'
+          FORCE_COLOR: '0'
         run: |
-          npx --yes wrangler@4 deploy 2>&1 | tee deploy.log
+          set +e
+          npx --yes wrangler@4 deploy > deploy.log 2>&1
+          code=$?
+          set -e
+          cat deploy.log
+          if [ $code -ne 0 ]; then
+            # surface Cloudflare's own error message on the run's summary page
+            grep -iE 'error|✘|authentication|subdomain|permission|account' deploy.log | head -n 8 | while IFS= read -r line; do echo "::error title=Cloudflare deploy::$line"; done
+            exit 1
+          fi
           url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -n 1 || true)
           if [ -z "$url" ]; then
             sub=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
