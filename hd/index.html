@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Hollow Dash</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="description" content="Hollow Dash — a side-scrolling platformer for your phone that slowly turns into a novel.">
+  <meta name="theme-color" content="#1c2752">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Hollow Dash">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="touch" aria-hidden="true"></div>
+
+  <div id="hud">
+    <div id="hearts" class="hud-item"></div>
+    <div id="score" class="hud-item hud-score"><span id="score-label"></span><span id="score-val">0</span></div>
+    <div class="hud-item hud-coins"><span class="coin-ico"></span><span id="coins">0</span></div>
+    <div class="hud-buttons">
+      <button id="btn-sound" class="icon-btn" aria-label="Mute">🔊</button>
+      <button id="btn-pause" class="icon-btn" aria-label="Pause">❚❚</button>
+    </div>
+  </div>
+
+  <div id="caption" aria-live="polite"><span class="shown"></span><span class="ghost"></span></div>
+
+  <div id="chapter-card" aria-live="polite">
+    <div class="cc-after"></div>
+    <div class="cc-num"></div>
+    <div class="cc-title"></div>
+  </div>
+
+  <div id="end-card" aria-live="polite">
+    <div class="ec-title">The End</div>
+    <p>With gratitude to Jonathan Lethem, whose books this one borrowed from:</p>
+    <ul>
+      <li><i>Gun, with Occasional Music</i> (1994)</li>
+      <li><i>Amnesia Moon</i> (1995)</li>
+      <li><i>As She Climbed Across the Table</i> (1997)</li>
+      <li><i>Motherless Brooklyn</i> (1999)</li>
+      <li><i>The Fortress of Solitude</i> (2003)</li>
+      <li><i>Chronic City</i> (2009)</li>
+      <li><i>The Ecstasy of Influence</i> (2011)</li>
+      <li><i>The Arrest</i> (2020)</li>
+    </ul>
+    <p class="ec-after">The afterword continues.</p>
+  </div>
+
+  <div id="crawl" class="hidden" aria-live="polite"></div>
+
+  <div id="overlay">
+    <section id="screen-title" class="screen">
+      <h1 class="logo"><span>HOLLOW</span><span>DASH</span></h1>
+      <p id="tagline" class="tagline">Run. Jump. Stomp. Don't fall.</p>
+      <p id="title-best-row" class="best hidden">Best <strong id="title-best">0</strong></p>
+      <button id="btn-continue" class="btn primary hidden">▶ Continue</button>
+      <button id="btn-play" class="btn primary">▶ Play</button>
+      <button id="btn-fullscreen" class="btn ghost">⛶ Fullscreen</button>
+      <p id="controls-hint" class="hint"></p>
+      <p class="rotate-hint">Rotate your phone for the best view ↻</p>
+    </section>
+
+    <section id="screen-pause" class="screen hidden">
+      <h2>Paused</h2>
+      <p id="pause-chapter" class="pause-chapter"></p>
+      <button id="btn-resume" class="btn primary">Resume</button>
+      <div class="row">
+        <button id="btn-sound-pause" class="btn ghost small">Sound</button>
+        <button id="btn-narration" class="btn ghost small">Narration</button>
+        <button id="btn-textsize" class="btn ghost small">Text</button>
+      </div>
+      <button id="btn-quit" class="btn ghost">Quit to title</button>
+    </section>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

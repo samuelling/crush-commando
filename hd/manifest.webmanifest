@@ -1,0 +1,14 @@
+{
+  "name": "Hollow Dash",
+  "short_name": "Hollow Dash",
+  "description": "A fast, endless side-scrolling platformer for your phone.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b1030",
+  "theme_color": "#1c2752",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
