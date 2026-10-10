@@ -55,7 +55,7 @@ jobs:
             owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9-')
             for sub in "$owner" "$owner-games" "crush-commando-$GITHUB_REPOSITORY_ID"; do
               resp=$(curl -sS -X PUT -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data "{\"subdomain\":\"$sub\"}" "$api")
-              if echo "$resp" | grep -q '"success":true'; then echo "::notice title=Cloudflare::Registered $sub.workers.dev"; break; fi
+              if echo "$resp" | grep -qE '"success": *true'; then echo "::notice title=Cloudflare::Registered $sub.workers.dev"; break; fi
               echo "::warning title=Cloudflare subdomain $sub::$(echo "$resp" | head -c 300)"
             done
             sleep 5
