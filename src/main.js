@@ -31,7 +31,7 @@ addEventListener('keydown', e => {
   e.preventDefault(); if (!kb[a]) latch[a] = true; kb[a] = true; audioInit(); G.lastInput = 'kb';
 });
 addEventListener('keyup', e => { kraw[e.code] = false; const a = KEYS[e.code]; if (a) kb[a] = false; });
-addEventListener('blur', () => { for (const k in kb) kb[k] = false; for (const k in kraw) kraw[k] = false; for (const k in tc) tc[k] = false; if (G.scene === 'play' && !G.overlay) openPause(); });
+addEventListener('blur', () => { for (const k in kb) kb[k] = false; for (const k in kraw) kraw[k] = false; for (const k in tc) tc[k] = false; if (G.scene === 'play' && !G.overlay && !HUB) openPause(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && G.scene === 'play' && !G.overlay) openPause(); });
 function setT(a, v) { if (v && !tc[a]) latch[a] = true; tc[a] = v; }
 function setupTouch() {
@@ -154,6 +154,7 @@ function startStage(w, i) {
     const r = buildLanes(L, w * 977 + i * 31 + 1); G.lanes = r.lanes;
     for (const d of r.extra) { const e = d.type === 'wpn' ? { type: 'wpn', x: d.x, y: d.y, w: 12, h: 10, vx: 0, vy: 0, letter: d.letter, t: 0, life: 1e9 } : makeEnt(d); if (e) { e.lane = d.lane; G.ents.push(e); } }
   }
+  G.ents.forEach((e, k) => { e.uid = 'e' + k; });
   if (i === 0 && !(SAVE.brief || {})[w]) { G.overlay = 'brief'; G.overlayT = 0.6; }
   G.embersTotal = G.ents.filter(e => e.type === 'ember').length;
   const rec = SAVE.lv[w + '-' + i];
@@ -205,6 +206,7 @@ function hazardHurt(kind) {
 }
 function bossHit(stomp = true) {
   const B = G.boss, P = G.P;
+  netEv({ k: 'bhit' });
   B.hp--; B.flash = 0.6; G.hitstop = 9; shake(G, 9); sfx('bosshit'); G.flash = 0.12;
   const bc = B.weak ? B.weak.x + B.weak.w / 2 : 240;
   if (stomp) { P.dashT = 0; P.vy = -400; P.vx = (P.x + 5 < bc ? -1 : 1) * 150; P.jumping = true; P.canDJ = G.ab.dj; P.dashAvail = true; P.glideArmed = false; P.onGround = false; burst(G, P.x + 5, P.y + 10, 20, '#ffd27a', 160, 0, true); }
@@ -290,6 +292,7 @@ function updatePlay(dt, inp) {
     G.aim = aimVec(inp, P);
     if (P.crouch && G.mode !== 'fp') G.aim = [P.face, 0];
     G.fireCD -= dt;
+    G.netFiring = !!inp.fire;
     if (inp.fire && G.fireCD <= 0) { fireWeapon(); G.fireCD = (WEAPONS[G.weapon] || WEAPONS.N).rate; }
     const PL = laneL(P.lane || 0) || L;
     const res = stepPlayer(P, pin, PL, dt, G.ab, FX);
@@ -387,6 +390,13 @@ function updatePlay(dt, inp) {
       case 'sign':
         if (Math.abs(P.x + 5 - e.x) < 64 && G.L.tutorial !== undefined) G.signText = tutorialText(G.L.tutorial);
         break;
+      case 'rift': {
+        const inside = Math.abs(P.x + 5 - e.x) < 7 && P.y + PH.ph > e.y - 34 && P.y < e.y;
+        if (!inside) e.armed = true;
+        else if (e.armed && HUB) { e.armed = false; netExit(e.id); }
+        if (Math.abs(P.x + 5 - e.x) < 70) G.signText = `A rift into Hollow Dash · ${HD_TITLES[e.id]}. Walk in to cross over.`;
+        break;
+      }
       case 'stal':
         if ((e.st === 'fall' || e.st === 'hang' || e.st === 'shake') && overlapRect(pbox, { x: e.x + 2, y: e.y, w: e.w - 4, h: e.h - 2 })) hurtPlayer(e.x + 5);
         break;
@@ -483,6 +493,7 @@ function updatePlay(dt, inp) {
 }
 function killEnemy(e, stomp) {
   e.dead = true; sfx('stomp'); G.hitstop = 3;
+  if (e.uid) { NET.killed.add(e.uid); netEv({ k: 'kill', uid: e.uid }); }
   const col = ENEMY_COL[G.world];
   burst(G, e.x + e.w / 2, e.y + e.h / 2, 12, e.type === 'runner' ? '#5a2a50' : col.b, 100, 300);
   burst(G, e.x + e.w / 2, e.y + e.h / 2, 4, '#ff5a8a', 70, 0, true);
@@ -717,6 +728,7 @@ function drawPlay(g) {
   for (const p of L.plats) drawPlat(g, p, G);
   for (const e of G.ents) if (!e.dead && !e.lane && e.x > cam - 40 && e.x < cam + VW + 40) drawEnt(g, e, G);
   if (G.boss && !(G.boss.dead && G.boss.dying <= 0)) G.boss.draw(g);
+  if (HUB) drawPeersSide(g);
   drawCommando(g);
   for (const b of G.bolts) drawBolt(g, b);
   for (const p of G.projs) drawProj(g, p);
@@ -758,6 +770,7 @@ function buildLights() {
     else if (e.type === 'beacon') ls.push({ x: e.x, y: e.y - 24, r: e.lit ? 90 : 46 });
     else if (e.type === 'wpn') ls.push({ x: e.x + 6, y: e.y + 5, r: 26 });
     else if (e.type === 'gate') ls.push({ x: e.x, y: e.y - 30, r: 70 });
+    else if (e.type === 'rift') ls.push({ x: e.x, y: e.y - 18, r: 64 });
     else if (e.type === 'turret' && e.fire > 0) ls.push({ x: e.x + 7, y: e.y + 8, r: 24 });
   }
   for (const p of G.projs) if (!(p.delay > 0) && p.kind !== 'smoke' && p.kind !== 'dwave') ls.push({ x: p.x, y: p.y, r: p.kind === 'orb' ? 22 : 14, a: 0.8 });
@@ -1109,6 +1122,7 @@ function update(dt) {
   }
   if (G.scene !== sc0 && G.scene !== 'play') G.fade = 1;
   G.click = null;
+  netTick(dt);
 }
 function render() {
   switch (G.scene) {
@@ -1126,6 +1140,7 @@ function render() {
     case 'map': drawMapUI(ctx); break;
     case 'play':
       drawHUD(ctx);
+      netDrawTags(ctx);
       if (G.overlay === 'pause') drawPause(ctx);
       else if (G.overlay === 'brief') drawBrief(ctx);
       else if (G.overlay === 'results') drawResults(ctx);
@@ -1140,6 +1155,7 @@ let last = performance.now(), acc = 0;
 function frame(now) {
   let d = (now - last) / 1000; last = now;
   if (d > 0.25) d = 0.25;
+  if (NET.asleep) { netTick(d); requestAnimationFrame(frame); return; }
   acc += d;
   const STEP = 1 / 60;
   let n = 0;

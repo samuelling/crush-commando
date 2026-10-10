@@ -19,31 +19,33 @@ function aimVec(inp, P) {
   return [ax / m, ay / m];
 }
 function fireWeapon() {
-  const P = G.P, W = WEAPONS[G.weapon] || WEAPONS.N, fp = G.mode === 'fp';
-  const [ax, ay] = G.aim;
-  const ox = P.x + 5 + ax * 9, oy = (P.crouch ? P.y + 10 : P.y + 4) + ay * 8;
-  const base = Math.atan2(ay, ax);
-  if (fp) {
-    const cp = Math.cos(G.pitch), sp = Math.sin(G.pitch);
+  const P = G.P;
+  shootFrom({ x: P.x, y: P.y, crouch: P.crouch, aim: G.aim, fp: G.mode === 'fp', yaw: G.yaw, pitch: G.pitch, z: P.z || 0, lane: P.lane || 0, weapon: G.weapon }, false);
+  G.muzzle = 0.06; G.fpKick = 1;
+  sfx('gun' + G.weapon);
+}
+// Spawn one trigger pull's bullets from shooter s. Ghost bullets are a friend's, fired on this screen.
+function shootFrom(s, ghost) {
+  const W = WEAPONS[s.weapon] || WEAPONS.N, wl = WEAPONS[s.weapon] ? s.weapon : 'N';
+  const [ax, ay] = s.aim;
+  if (s.fp) {
+    const cp = Math.cos(s.pitch), sp = Math.sin(s.pitch);
     for (let i = 0; i < W.n; i++) {
       const off = W.n > 1 ? (i - (W.n - 1) / 2) * W.spread : 0;
-      const a = G.yaw + off + (W.jitter ? (Math.random() - 0.5) * W.jitter : 0);
+      const a = s.yaw + off + (W.jitter ? (Math.random() - 0.5) * W.jitter : 0);
       const dx = Math.cos(a) * cp, dz = Math.sin(a) * cp, dy = -sp;
-      const z = (P.z || 0) + dz * 6;
-      G.bolts.push({ lane: Math.round(z / LW), z, vz: dz * W.speed, x: P.x + 5 + dx * 6, y: P.y + 3 + dy * 6, vx: dx * W.speed, vy: dy * W.speed, life: W.life, dmg: W.dmg, pierce: !!W.pierce, flame: !!W.flame, w: G.weapon, hit: W.pierce ? new Set() : null, t: 0 });
+      const z = (s.z || 0) + dz * 6;
+      G.bolts.push({ ghost, lane: Math.round(z / LW), z, vz: dz * W.speed, x: s.x + 5 + dx * 6, y: s.y + 3 + dy * 6, vx: dx * W.speed, vy: dy * W.speed, life: W.life, dmg: W.dmg, pierce: !!W.pierce, flame: !!W.flame, w: wl, hit: W.pierce ? new Set() : null, t: 0 });
     }
-    G.muzzle = 0.06; G.fpKick = 1; sfx('gun' + G.weapon);
     return;
   }
+  const ox = s.x + 5 + ax * 9, oy = (s.crouch ? s.y + 10 : s.y + 4) + ay * 8;
+  const base = Math.atan2(ay, ax);
   for (let i = 0; i < W.n; i++) {
     const off = W.n > 1 ? (i - (W.n - 1) / 2) * W.spread : 0;
     const a = base + off + (W.jitter ? (Math.random() - 0.5) * W.jitter : 0);
-    let vx = Math.cos(a) * W.speed, vy = Math.sin(a) * W.speed;
-    if (fp && W.n > 1) { vx = ax * W.speed; vy = off * 160; }
-    G.bolts.push({ lane: P.lane || 0, z: P.z || 0, x: ox, y: oy, vx, vy, life: W.life, dmg: W.dmg, pierce: !!W.pierce, flame: !!W.flame, w: G.weapon, hit: W.pierce ? new Set() : null, t: 0 });
+    G.bolts.push({ ghost, lane: s.lane || 0, z: s.z || 0, x: ox, y: oy, vx: Math.cos(a) * W.speed, vy: Math.sin(a) * W.speed, life: W.life, dmg: W.dmg, pierce: !!W.pierce, flame: !!W.flame, w: wl, hit: W.pierce ? new Set() : null, t: 0 });
   }
-  G.muzzle = 0.06; G.fpKick = 1;
-  sfx('gun' + G.weapon);
 }
 function damageEnt(e, b) {
   if (e.hp === undefined) e.hp = ENEMY_HP[e.type] || 1;
@@ -51,8 +53,8 @@ function damageEnt(e, b) {
   if (e.type === 'stal') { e.st = 'gone'; e.st_t = 3; burst(G, e.x + 5, e.y + 7, 8, '#ffffff', 80); sfx('crumble'); return; }
   if (e.type === 'pod') {
     if (e.hp <= 0) {
-      e.dead = true; sfx('stomp'); burst(G, e.x, e.y, 14, '#ffd27a', 120, 0, true);
-      G.ents.push({ type: 'wpn', x: e.x - 6, y: e.y - 5, w: 12, h: 10, vx: 0, vy: -200, letter: e.letter, t: 0, life: 18 });
+      netKillEnt(e, true);
+      if (e.uid) netEv({ k: 'kill', uid: e.uid });
     } else sfx('tink');
     return;
   }
@@ -76,7 +78,7 @@ function updateBolts(dt) {
       else continue;
       if (b.hit && b.hit.has(e)) continue;
       if (overlapRect(box, r)) {
-        damageEnt(e, b);
+        NET.quiet = !!b.ghost; damageEnt(e, b); NET.quiet = false;
         if (b.hit) b.hit.add(e); else { b.life = 0; break; }
       }
     }
@@ -84,7 +86,7 @@ function updateBolts(dt) {
     for (const p of G.projs) if ((p.lane || 0) === (b.lane || 0) && (p.kind === 'orb' || p.kind === 'bullet' || p.kind === 'smoke' || p.kind === 'seed' || p.kind === 'shard' || p.kind === 'ice') && !(p.delay > 0) && Math.abs(p.x - b.x) < 7 && Math.abs(p.y - b.y) < 7) {
       p.life = 0; burst(G, p.x, p.y, 5, '#ffb0a0', 60); if (!b.pierce) { b.life = 0; break; }
     }
-    if (b.life <= 0 || !B || B.dead) continue;
+    if (b.life <= 0 || !B || B.dead || b.ghost) continue;
     let dmg = 0;
     if (B.weak && overlapRect(box, B.weak)) dmg = b.dmg * 2;
     else for (const s of B.hits) if (hitShape(s, box)) { dmg = b.dmg; break; }
@@ -113,8 +115,9 @@ function spawnRunner() {
   const Lk = laneL(lane) || L;
   for (let ty = 3; ty < L.h; ty++) {
     if (isSolidT(Lk, tx, ty) && tileAt(Lk, tx, ty - 1) === T.AIR && tileAt(Lk, tx, ty - 2) === T.AIR) {
-      G.ents.push({ lane, type: 'runner', x: tx * 16 + 3, y: ty * 16 - 14, w: 10, h: 14, vx: -dir * 70, vy: 0, enemy: true, stomp: true, hp: 1, t: Math.random() * 5, shooter: Math.random() < 0.3 + G.world * 0.08, cd: 0.8 + Math.random(), aimT: 0 });
-      return;
+      const e = { lane, type: 'runner', x: tx * 16 + 3, y: ty * 16 - 14, w: 10, h: 14, vx: -dir * 70, vy: 0, enemy: true, stomp: true, hp: 1, t: Math.random() * 5, shooter: Math.random() < 0.3 + G.world * 0.08, cd: 0.8 + Math.random(), aimT: 0 };
+      G.ents.push(e);
+      return e;
     }
   }
 }
@@ -153,14 +156,16 @@ function spawnersUpdate(dt) {
   const edge = G.mode === 'fp' ? P.x + (G.fpFace || 1) * 260 : G.camX + VW;
   while (G.podPlan.length && G.podPlan[0].x < edge && G.podPlan[0].x > P.x) {
     const p = G.podPlan.shift();
-    G.ents.push(makePod(G.mode === 'fp' ? edge : G.camX + VW + 20, 40 + Math.random() * 60, p.letter));
+    const pod = makePod(G.mode === 'fp' ? edge : G.camX + VW + 20, 40 + Math.random() * 60, p.letter);
+    pod.uid = 'p' + p.i;
+    if (!NET.killed.has(pod.uid)) G.ents.push(pod);
   }
   while (G.podPlan.length && G.podPlan[0].x <= P.x - 200) G.podPlan.shift();
   G.runT -= dt;
   if (G.runT <= 0 && G.pstate === 'alive') {
     G.runT = Math.max(1.4, 3.2 - G.world * 0.3) + Math.random() * 1.6;
     const near = G.ents.filter(e => e.type === 'runner' && !e.dead).length;
-    if (near < 3 + Math.floor(G.world / 2)) spawnRunner();
+    if (near < 3 + Math.floor(G.world / 2) && (!HUB || netIsHost())) netSpawned(spawnRunner());
   }
 }
 function makePod(x, y, letter) { return { type: 'pod', x, y, oy: y, vx: -58, hp: 2, letter, t: 0 }; }
@@ -168,7 +173,7 @@ function planPods(L, seed) {
   const R = rng(seed), out = [], letters = ['S', 'M', 'L', 'F'];
   for (let i = letters.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [letters[i], letters[j]] = [letters[j], letters[i]]; }
   let k = 0;
-  for (let x = 22 * 16; x < (L.w - 24) * 16; x += 58 * 16) out.push({ x, letter: letters[k++ % 4] });
+  for (let x = 22 * 16; x < (L.w - 24) * 16; x += 58 * 16) { out.push({ x, letter: letters[k % 4], i: k }); k++; }
   return out;
 }
 
@@ -204,7 +209,7 @@ function drawBolt(g, b) {
 }
 function heroBody(g, o) {
   // o: {crouch, air, run, st, t, glasses}; drawn facing right, feet at (0,0)
-  const pants = '#2a3a6a', pants2 = '#22305a', boot = '#3a2a1c', skin = '#d9a070', skin2 = '#b8804f';
+  const pal = o.pal || {}, pants = pal.pants || '#2a3a6a', pants2 = pal.pants2 || '#22305a', boot = '#3a2a1c', skin = '#d9a070', skin2 = '#b8804f';
   if (o.crouch) { rect(g, -5, -4, 10, 3, pants); rect(g, -6, -1, 5, 1, boot); rect(g, 1, -1, 5, 1, boot); }
   else if (o.air) { rect(g, -4, -6, 3, 4, pants); rect(g, 1, -5, 3, 3, pants2); rect(g, -4, -2, 3, 1, boot); rect(g, 1, -2, 3, 1, boot); }
   else {
@@ -215,9 +220,9 @@ function heroBody(g, o) {
   rect(g, -4, ty, 8, 7, skin); rect(g, -4, ty, 2, 7, skin2); rect(g, -2, ty + 2, 5, 1, skin2); rect(g, 0, ty + 4, 1, 2, skin2); rect(g, -4, ty + 6, 8, 1, '#5a3a1c');
   const hy = ty - 6;
   rect(g, -3, hy, 6, 6, '#e2a878'); rect(g, -3, hy - 1, 6, 2, '#2a1a10'); rect(g, 3, hy + 4, 1, 2, '#c08858');
-  rect(g, -3, hy + 1, 6, 1, '#d0302a');
+  rect(g, -3, hy + 1, 6, 1, pal.band || '#d0302a');
   const wv = Math.sin(o.t * 14) > 0 ? 1 : 0;
-  rect(g, -5, hy + 1 + wv, 2, 1, '#d0302a'); rect(g, -7, hy + 2, 2, 1, '#b02020');
+  rect(g, -5, hy + 1 + wv, 2, 1, pal.band || '#d0302a'); rect(g, -7, hy + 2, 2, 1, pal.band2 || '#b02020');
   if (o.glasses) rect(g, 0, hy + 2, 4, 1, '#0a0a0a'); else rect(g, 1, hy + 3, 1, 1, '#1a1010');
 }
 function drawCommando(g) {

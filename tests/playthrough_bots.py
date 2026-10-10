@@ -34,7 +34,7 @@ async def main():
         errs=[]
         pg.on('pageerror', lambda e: errs.append('PAGEERROR: '+str(e)))
         pg.on('console', lambda m: errs.append(m.text) if m.type=='error' and 'net::' not in m.text else None)
-        await pg.goto('file://' + str(pathlib.Path(__file__).resolve().parent.parent / 'index.html'))
+        await pg.goto('file://' + str(pathlib.Path(__file__).resolve().parent.parent / 'cc' / 'index.html'))
         await pg.wait_for_timeout(300)
         await pg.evaluate(BOT)
         for w in range(5):

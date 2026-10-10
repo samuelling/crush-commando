@@ -1,0 +1,1 @@
+{ "name": "crush-commando-mp", "private": true, "type": "module", "scripts": { "dev": "node dev.js" } }

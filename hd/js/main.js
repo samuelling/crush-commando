@@ -6,6 +6,7 @@ import { CHAPTERS, LAST_CHAPTER } from './chapters.js';
 import { drawTouchHints } from './render.js';
 import { getArt } from './mind.js';
 import { CrawlView } from './crawlview.js';
+import { HUB, initHub, hubStep } from './hub.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -134,11 +135,8 @@ function startGame(chapter) {
   if (params.has('crawl')) game.enterCrawl();   // debug: straight through the door
 }
 
-$('btn-play').addEventListener('click', () => { startGame(0); if (isTouch) goFullscreen(); });
-$('btn-continue').addEventListener('click', () => { startGame(bookmark()); if (isTouch) goFullscreen(); });
-$('btn-fullscreen').addEventListener('click', () => { sound.unlock(); goFullscreen(); });
-$('btn-resume').addEventListener('click', () => { sound.unlock(); game.resume(); });
-$('btn-quit').addEventListener('click', () => {
+// Leave whatever is going on (the mind, the crawl, a pause) and start running from chapter k.
+function quitToTitle() {
   game.recordBest();
   game.state = 'title';
   game.mind = null;
@@ -149,6 +147,20 @@ $('btn-quit').addEventListener('click', () => {
   game.newGame(0);
   $('end-card').classList.remove('show');
   $('chapter-card').classList.remove('show');
+}
+function restartAt(k) {
+  quitToTitle();
+  sound.unlock();
+  ui.show(null);
+  game.start(k);
+}
+
+$('btn-play').addEventListener('click', () => { startGame(0); if (isTouch) goFullscreen(); });
+$('btn-continue').addEventListener('click', () => { startGame(bookmark()); if (isTouch) goFullscreen(); });
+$('btn-fullscreen').addEventListener('click', () => { sound.unlock(); goFullscreen(); });
+$('btn-resume').addEventListener('click', () => { sound.unlock(); game.resume(); });
+$('btn-quit').addEventListener('click', () => {
+  quitToTitle();
   showTitle();
 });
 $('btn-pause').addEventListener('click', () => { sound.unlock(); game.togglePause(); });
@@ -202,11 +214,12 @@ function adaptQuality(dt) {
 function frame(now) {
   let dt = (now - last) / 1000;
   last = now;
+  if (HUB.asleep) { hubStep(dt); requestAnimationFrame(frame); return; }
   adaptQuality(dt);
   if (dt > 0.25) dt = 0.25;
   acc += dt;
   let n = 0;
-  while (acc >= STEP && n < 8) { game.step(STEP); acc -= STEP; n++; }
+  while (acc >= STEP && n < 8) { game.step(STEP); hubStep(STEP); acc -= STEP; n++; }
   if (n === 8) acc = 0;
   game.render(ctx, dpr, scale);
   if ((game.state === 'playing' || game.state === 'mind') && isTouch) {
@@ -218,7 +231,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // ---- PWA --------------------------------------------------------------------
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+if (!HUB.on && 'serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
@@ -226,6 +239,8 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 // fall into the Mind doesn't stutter.
 const warmMind = () => { try { getArt(); } catch (_) { /* built on demand instead */ } };
 if ('requestIdleCallback' in window) requestIdleCallback(warmMind, { timeout: 4000 }); else setTimeout(warmMind, 1500);
+
+initHub({ game, sound, input, ui, startGame, restartAt });
 
 // Debug handle (used by the automated tests).
 window.hollowDash = { game, input, sound, story };

@@ -6,6 +6,7 @@ import { SIGN_TEXT, HEADLINES, readPref, writePref } from './story.js';
 import * as R from './render.js';
 import { Mind, drawWordRain, renderBackdrop } from './mind.js';
 import { Crawl } from './crawl.js';
+import { HUB, hubSeed } from './hubcfg.js';
 
 const GRAVITY = 2300;
 const MAX_FALL = 1150;
@@ -61,13 +62,13 @@ export class Game {
   setView(VW, VH) { this.VW = VW; this.VH = VH; }
 
   newGame(startChapter = 0) {
-    const seed = (Math.random() * 1e9) | 0;
+    const seed = HUB.on ? hubSeed(startChapter) : (Math.random() * 1e9) | 0;
     this.startChapter = startChapter;
     this.level = new Level(seed, startChapter);
     const s = this.level.startCol;
     this.player = new Player((s + 3) * T + T / 2, 10 * T);
     this.coins = []; this.enemies = []; this.platforms = []; this.items = []; this.flags = [];
-    this.balls = []; this.voids = []; this.cracks = []; this.signs = []; this.billboards = []; this.glimpses = []; this.doors = [];
+    this.balls = []; this.voids = []; this.cracks = []; this.signs = []; this.billboards = []; this.glimpses = []; this.doors = []; this.portals = [];
     this.particles = []; this.texts = [];
     this.hearts = MAX_HEARTS; this.coinCount = 0; this.kills = 0; this.bonus = 0; this.karmaDock = 0; this.pendingDock = false;
     this.startMeter = s; this.meter = s; this.distance = 0; this.score = 0;
@@ -114,8 +115,8 @@ export class Game {
       const skin = lv.skinAt(Math.floor((s.x0 ?? s.x) / T));
       switch (s.type) {
         case 'coin': this.coins.push({ x: s.x, y: s.y, w: 22, h: 22 }); break;
-        case 'walker': this.enemies.push({ type: 'walker', style: WALKER_STYLE[skin] || 'blob', x: s.x - 20, y: s.y - 30, w: 40, h: 30, vx: 60 * s.dir, vy: 0, dir: s.dir, anim: Math.random() * 6, dead: false }); break;
-        case 'bat': this.enemies.push({ type: 'bat', style: BIRD_STYLE[skin] || 'bat', x0: s.x, y0: s.y, x: s.x, y: s.y, w: 30, h: 22, ax: s.ax, ay: s.ay, period: s.period, phase: s.phase, face: 1, dead: false }); break;
+        case 'walker': if (this.netKilled && this.netKilled.has(s.uid)) break; this.enemies.push({ uid: s.uid, type: 'walker', style: WALKER_STYLE[skin] || 'blob', x: s.x - 20, y: s.y - 30, w: 40, h: 30, vx: 60 * s.dir, vy: 0, dir: s.dir, anim: Math.random() * 6, dead: false }); break;
+        case 'bat': if (this.netKilled && this.netKilled.has(s.uid)) break; this.enemies.push({ uid: s.uid, type: 'bat', style: BIRD_STYLE[skin] || 'bat', x0: s.x, y0: s.y, x: s.x, y: s.y, w: 30, h: 22, ax: s.ax, ay: s.ay, period: s.period, phase: s.phase, face: 1, dead: false }); break;
         case 'mover': this.platforms.push({ x: s.x0, y: s.y, w: s.w, h: s.h, x0: s.x0, x1: s.x1, period: s.period, phase: s.phase, dx: 0, dy: 0, style: PLATFORM_STYLE[skin] || 'wood' }); break;
         case 'heart': this.items.push({ type: 'heart', x: s.x - 14, y: s.y - 13, w: 28, h: 26 }); break;
         case 'ring': this.items.push({ type: 'ring', x: s.x - 12, y: s.y - 12, w: 24, h: 24 }); break;
@@ -127,6 +128,7 @@ export class Game {
         case 'sign': this.signs.push({ x: s.x, y: s.y, rule: s.rule, w: 4 * T }); break;
         case 'billboard': this.billboards.push({ x: s.x, y: s.y, idx: s.idx, w: 5 * T }); break;
         case 'mindDoor': this.doors.push({ x: s.x, y: s.y, w: 5 * T, used: false }); break;
+        case 'portal': this.portals.push({ x: s.x, y: s.y, id: s.id, armed: true, w: 0 }); break;
       }
     }
     lv.spawns.length = 0;
@@ -143,6 +145,7 @@ export class Game {
     this.signs = this.signs.filter(keep);
     this.billboards = this.billboards.filter(keep);
     this.doors = this.doors.filter(keep);
+    this.portals = this.portals.filter((o) => o.x + 80 > lim);
   }
 
   // ---- collision ----------------------------------------------------------
@@ -577,6 +580,13 @@ export class Game {
       if (!o.used && p.cx >= o.x + T * 0.5) { o.used = true; this.enterCrawl(); return; }
     }
 
+    // rifts into Crush Commando (combined game only): walk into one to cross over
+    for (const o of this.portals) {
+      const inside = Math.abs(p.cx - o.x) < 20 && p.bottom > o.y - 120 && p.y < o.y;
+      if (!inside) o.armed = true;
+      else if (o.armed && this.onPortal) { o.armed = false; this.onPortal(o.id); return; }
+    }
+
     for (const f of this.flags) {
       if (f.active || p.cx < f.x) continue;
       f.active = true;
@@ -615,6 +625,7 @@ export class Game {
       if (falling && p.bottom - p.vy * dt - 6 <= e.y + e.h * 0.5) {
         e.dead = true;
         this.kills++;
+        if (this.onKill && e.uid != null) this.onKill(e.uid);
         p.vy = -500; p.canDouble = !ch.noDouble; p.jumpCut = true;
         p.sx = 0.8; p.sy = 1.25;
         this.shake = 0.5;
@@ -804,14 +815,14 @@ export class Game {
   jumpToChapter(k) {
     this.distanceBank += this.distance;
     this.startChapter = k;
-    this.level = new Level((Math.random() * 1e9) | 0, k);
+    this.level = new Level(HUB.on ? hubSeed(k) : (Math.random() * 1e9) | 0, k);
     const s = this.level.startCol;
     this.player = new Player((s + 3) * T + T / 2, 10 * T);
     this.coins = []; this.enemies = []; this.platforms = []; this.items = []; this.flags = [];
-    this.balls = []; this.voids = []; this.cracks = []; this.signs = []; this.billboards = []; this.glimpses = []; this.doors = [];
+    this.balls = []; this.voids = []; this.cracks = []; this.signs = []; this.billboards = []; this.glimpses = []; this.doors = []; this.portals = [];
     this.particles = []; this.texts = [];
     this.startMeter = s; this.meter = s; this.distance = 0;
-    this.chapterIdx = k - 1;
+    this.chapterIdx = Math.max(0, k - 1);
     this.checkpoint = { x: this.player.cx, y: 10 * T };
     this.cam = { x: s * T, y: LEVEL_BOTTOM + 64 - this.VH };
     this.rule = null;
@@ -819,6 +830,26 @@ export class Game {
     this.ui.arrestHud(false);
     this.sync();
     this.cam.y = this.targetCamY();
+  }
+
+  // Combined game: put the player down at world position (x, ground y), e.g. at a portal or a friend.
+  teleportTo(x, bottom) {
+    const lv = this.level, p = this.player;
+    lv.ensure(Math.floor(x / T) + 60);
+    const before = this.meter;
+    p.x = x - p.w / 2; p.y = bottom - p.h; p.vx = 0; p.vy = 0;
+    p.standingOn = null; p.trail.length = 0; p.invuln = 1.2; p.dead = false; p.spin = 0; p.sx = 1; p.sy = 1;
+    this.cam.x = Math.max(lv.startCol * T, p.x - this.VW * 0.3);
+    this.cam.y = this.targetCamY();
+    this.sync();
+    let gate = -1;
+    for (const g of lv.gates) if (g.x <= p.cx) gate = Math.max(gate, g.ci);
+    for (const f of this.flags) if (f.x <= p.cx) f.active = true;
+    this.checkpoint = { x: p.cx, y: bottom };
+    if (gate > this.chapterIdx) this.enterChapter(gate);
+    this.meter = p.x / T - 3;
+    this.startMeter += this.meter - before;
+    this.state = 'playing'; this.stateT = 0; this.fade = 0;
   }
 
   restoreMusic() {
@@ -911,6 +942,7 @@ export class Game {
     R.drawTiles(ctx, this.level, cam, VW, VH, this.time);
     for (const g of this.glimpses) R.drawGlimpse(ctx, g);
     for (const o of this.doors) R.drawMindDoor(ctx, o, this.time);
+    for (const o of this.portals) R.drawPortal(ctx, o, this.time);
     for (const f of this.flags) R.drawFlag(ctx, f, this.time);
     for (const p of this.platforms) R.drawPlatform(ctx, p);
     for (const c of this.coins) R.drawCoin(ctx, c, this.time);
@@ -925,6 +957,7 @@ export class Game {
     ctx.globalAlpha = p.ring === 'invisible' ? 0.22 + 0.08 * Math.sin(this.time * 5) : blink ? 0.35 : 1;
     R.drawPlayer(ctx, p, this.time);
     ctx.globalAlpha = 1;
+    if (this.drawPeers) this.drawPeers(ctx);
     R.drawParticles(ctx, this.particles);
     R.drawTexts(ctx, this.texts);
 

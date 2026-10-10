@@ -978,6 +978,52 @@ export function drawMindDoor(ctx, o, time) {
   ctx.beginPath(); ctx.arc(x + w * 0.45, gy - h / 2, 2.5, 0, Math.PI * 2); ctx.fill();
 }
 
+// The combined game's rift into Crush Commando: a hot-pink tear in the page with hearts streaming out.
+const RIFT_NAMES = ['RECESS GROVE', 'THE UNSENT LETTER CAVES', 'THE LEFT-ON-READ SPIRES', 'THE COLD SHOULDER PEAKS', 'THE HEARTBREAK CORE'];
+export function drawPortal(ctx, o, time) {
+  const x = o.x, gy = o.y, h = 116, w = 34, cy = gy - h / 2;
+  // signpost
+  const sx = x - 2.6 * T;
+  ctx.fillStyle = '#5a3a3a';
+  ctx.fillRect(sx + 10, gy - 104, 6, 104);
+  ctx.fillStyle = '#2a1420';
+  roundRect(ctx, sx - 56, gy - 150, 140, 50, 6); ctx.fill();
+  ctx.strokeStyle = '#ff5d8a'; ctx.lineWidth = 3;
+  roundRect(ctx, sx - 56, gy - 150, 140, 50, 6); ctx.stroke();
+  ctx.fillStyle = '#ffd0dc'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '800 10px system-ui, sans-serif';
+  ctx.fillText('A RIFT INTO', sx + 14, gy - 136);
+  ctx.font = '800 9px system-ui, sans-serif';
+  ctx.fillText(RIFT_NAMES[o.id] || 'SOMEWHERE ELSE', sx + 14, gy - 121);
+  ctx.font = 'italic 9px Georgia, serif';
+  ctx.fillStyle = 'rgba(255,208,220,0.75)';
+  ctx.fillText('(someone else\u2019s heartbreak)', sx + 14, gy - 108);
+  // glow
+  const g = ctx.createRadialGradient(x, cy, 6, x, cy, 120);
+  g.addColorStop(0, 'rgba(255,90,140,0.55)');
+  g.addColorStop(1, 'rgba(255,90,140,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(x - 130, cy - 130, 260, 260);
+  // the tear: layered wobbling ellipses
+  for (let i = 0; i < 4; i++) {
+    const k = 1 - i * 0.2, wob = Math.sin(time * 3 + i) * 3;
+    ctx.fillStyle = ['#3a0a24', '#8a1640', '#ff3d7a', '#ffd0dc'][i];
+    ctx.beginPath(); ctx.ellipse(x, cy, (w + wob) * k, (h / 2 + wob) * k, Math.sin(time * 0.7) * 0.05, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#12060c';
+  ctx.beginPath(); ctx.ellipse(x, cy, w * 0.32, h * 0.36, 0, 0, Math.PI * 2); ctx.fill();
+  // hearts drifting out of it
+  for (let i = 0; i < 7; i++) {
+    const t = (time * 0.45 + i / 7) % 1, a = (1 - t) * 0.9;
+    const hx = x + Math.sin(i * 2.3 + time) * 10 + (i % 2 ? 1 : -1) * t * 60, hy = cy + Math.cos(i * 1.7) * 30 - t * 60, s = 5 + (i % 3);
+    ctx.fillStyle = `rgba(255,${120 + i * 15},${160 + i * 10},${a})`;
+    ctx.beginPath(); ctx.moveTo(hx, hy + s);
+    ctx.bezierCurveTo(hx - s * 1.5, hy, hx - s * 0.7, hy - s * 1.2, hx, hy - s * 0.4);
+    ctx.bezierCurveTo(hx + s * 0.7, hy - s * 1.2, hx + s * 1.5, hy, hx, hy + s);
+    ctx.fill();
+  }
+}
+
 export function drawGlimpse(ctx, g) {
   const a = clamp(Math.min(g.t, g.life - g.t) / 0.25, 0, 1);
   ctx.save();
@@ -994,7 +1040,8 @@ export function drawGlimpse(ctx, g) {
   ctx.restore();
 }
 
-export function drawPlayer(ctx, p, time) {
+const DEFAULT_PAL = { feet: '#c93a3a', body: '#ff5d5d', belly: '#ff8c8c' };
+export function drawPlayer(ctx, p, time, pal = DEFAULT_PAL) {
   if (p.trail.length > 2) {
     ctx.strokeStyle = '#ffd166';
     ctx.lineCap = 'round';
@@ -1021,7 +1068,7 @@ export function drawPlayer(ctx, p, time) {
   ctx.rotate(p.spin * p.facing);
   ctx.scale(p.facing * p.sx * p.scale, p.sy * p.scale);
   const h = 42, w = 30;
-  ctx.fillStyle = '#c93a3a';
+  ctx.fillStyle = pal.feet;
   if (p.grounded && Math.abs(p.vx) > 20) {
     const s = Math.sin(p.runPhase);
     ctx.beginPath(); ctx.ellipse(-6 + s * 7, -3, 7, 4.5, 0, 0, Math.PI * 2); ctx.fill();
@@ -1033,10 +1080,10 @@ export function drawPlayer(ctx, p, time) {
     ctx.beginPath(); ctx.ellipse(-6, -6, 6, 4.5, 0.4, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(7, -8, 6, 4.5, -0.4, 0, Math.PI * 2); ctx.fill();
   }
-  ctx.fillStyle = '#ff5d5d';
+  ctx.fillStyle = pal.body;
   roundRect(ctx, -w / 2, -h, w, h - 4, 11);
   ctx.fill();
-  ctx.fillStyle = '#ff8c8c';
+  ctx.fillStyle = pal.belly;
   roundRect(ctx, -w / 2 + 5, -h + 18, w - 10, h - 28, 8);
   ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,0.22)';

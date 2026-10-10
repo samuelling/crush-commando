@@ -1,0 +1,72 @@
+name: Deploy
+
+# On every push to main: deploy the multiplayer server to Cloudflare (when the CLOUDFLARE_API_TOKEN
+# and CLOUDFLARE_ACCOUNT_ID secrets are set), point the game at it, and publish the site to GitHub Pages.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build and check
+        run: |
+          sh tools/build.sh
+          for f in hd/js/*.js server/*.js; do node --check "$f"; done
+
+      - name: Deploy multiplayer server to Cloudflare
+        id: worker
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        working-directory: server
+        run: |
+          npx --yes wrangler@4 deploy 2>&1 | tee deploy.log
+          url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -n 1 || true)
+          if [ -z "$url" ]; then
+            sub=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+              | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).result.subdomain))")
+            url="https://crush-commando-mp.$sub.workers.dev"
+          fi
+          echo "Multiplayer server: $url"
+          echo "wss=${url/https:/wss:}" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp -r index.html cc hd _site/
+          if [ -n "${{ steps.worker.outputs.wss }}" ]; then
+            echo "window.MP_SERVER = '${{ steps.worker.outputs.wss }}';" > _site/mp-config.js
+          else
+            echo "No Cloudflare secrets set: publishing in solo mode (rifts work, no multiplayer)."
+            cp mp-config.js _site/mp-config.js
+          fi
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: pages
+        uses: actions/deploy-pages@v4

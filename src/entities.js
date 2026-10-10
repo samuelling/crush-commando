@@ -23,12 +23,13 @@ function makeEnt(d) {
     case 'Z': return { type: 'beacon', x: d.x + 8, y: d.y + 16, lit: false, t: r };
     case 'i': return { type: 'sign', x: d.x + 8, y: d.y + 16, t: r };
     case 'Y': return { type: 'gate', x: d.x + 8, y: d.y + 16, t: r };
+    case 'R': return { type: 'rift', x: d.x + 8, y: d.y + 16, t: r, armed: true, id: 0 };
   }
   return null;
 }
 function spawnEntities(L) {
   const out = [];
-  for (const d of L.ents) { const e = makeEnt(d); if (e) out.push(e); }
+  for (const d of L.ents) { const e = makeEnt(d); if (e) { if (e.type === 'rift') e.id = L.world; out.push(e); } }
   L.stars.forEach((s, i) => out.push({ type: 'star', x: s.x, y: s.y, oy: s.y, i, t: i }));
   L.plats = L.platDefs.map(d => ({ kind: d.kind, x: d.x, y: d.y, w: d.w, h: d.h, x0: d.x, y0: d.y, ox: d.x, oy: d.y, range: d.range, vx: 0, vy: 0, t: d.x * 0.01, st: 0, gone: false }));
   return out;
@@ -224,6 +225,7 @@ function drawEnt(g, e, G) {
     }
     case 'beacon': drawShrine(g, e); break;
     case 'gate': drawGate(g, e); break;
+    case 'rift': drawRift(g, e); break;
     case 'sign': {
       rect(g, e.x - 1, e.y - 12, 2, 12, '#3b2a1c'); rect(g, e.x - 8, e.y - 20, 16, 10, '#8a6440'); rect(g, e.x - 8, e.y - 20, 16, 1, '#b38a5e');
       for (let i = 0; i < 3; i++) rect(g, e.x - 5, e.y - 17 + i * 2, 6 + (i % 2) * 4, 1, '#4a3322');

@@ -1,6 +1,7 @@
 // Tile grid + procedural chunk generator. Chunks are chosen per chapter of the book.
 import { clamp, mulberry32, randInt } from './util.js';
 import { CHAPTERS, LAST_CHAPTER, SKINS, chapterIndexAt } from './chapters.js';
+import { HUB, CH_PORTAL } from './hubcfg.js';
 
 export const T = 48;            // tile size in world px
 export const ROWS = 14;         // world height in tiles
@@ -31,6 +32,8 @@ export class Level {
     this.lastType = '';
     this.lastRule = '';
     this.billboardN = 0;
+    this.uidN = 0;
+    this.portalAt = {};
     this.vaseChapters = new Set();
     this.startChapter = startChapter;
     this.gated = Math.max(0, startChapter - 1);
@@ -59,7 +62,7 @@ export class Level {
   fillGround(c0, c1, row) {
     for (let c = c0; c <= c1; c++) for (let r = row; r < ROWS; r++) this.set(c, r, SOLID);
   }
-  spawn(obj) { this.spawns.push(obj); }
+  spawn(obj) { obj.uid = this.uidN++; this.spawns.push(obj); }
   coin(cx, cy) { this.spawn({ type: 'coin', x: cx * T + T / 2, y: cy * T + T / 2 }); }
   coinLine(c0, c1, row) { for (let c = c0; c <= c1; c++) this.coin(c, row); }
   coinArc(c0, c1, row, height) {
@@ -110,6 +113,7 @@ export class Level {
     if (ci > this.gated) type = 'gate';
     else if (this.sinceCheckpoint >= 8) type = 'checkpoint';
     else if (this.chunkCount <= 2) type = this.chunkCount === 1 ? 'gap' : 'flat';
+    else if (HUB.on && CH_PORTAL[ci] !== undefined && !this.portalAt[ci] && this.chunksInChapter >= 3) type = 'portal';
     else if (ch.key === 'dream' && !this.doorPlaced && this.chunksInChapter >= 7) type = 'mindDoor';
     else if (ch.key === 'gray' && !this.vaseChapters.has(ci) && this.chunksInChapter >= 4 && r() < 0.4) type = 'vase';
     else type = this._pick(ch.pool);
@@ -357,6 +361,18 @@ export class Level {
     if (last) last.c1 = Math.min(last.c1, c - 1);
     this.sinceCheckpoint = 0;
     this.doorPlaced = true;
+    this.genCol = c + len;
+  }
+
+  // In the combined game: a rift into Crush Commando, standing on a quiet stretch of road.
+  _portal(d, ch, ci) {
+    const c = this.genCol;
+    const len = 10;
+    this.fillGround(c, c + len - 1, this.groundRow);
+    const x = (c + 5) * T, y = this.groundRow * T;
+    this.spawn({ type: 'portal', x, y, id: CH_PORTAL[ci] });
+    this.portalAt[ci] = { x, y };
+    this.coinArc(c + 1, c + 3, this.groundRow - 2, 1);
     this.genCol = c + len;
   }
 

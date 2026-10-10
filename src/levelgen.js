@@ -81,6 +81,7 @@ function buildLevel(world, idx) {
     let rows = chunkRows(c.m);
     if (pl.mirror[i]) rows = rows.map(r => [...r].reverse().join(''));
     parts.push(rows); ids.push(c.id);
+    if (HUB && idx === 0 && i === 0) parts.push(chunkRows(PORTAL_CHUNK));
     if (pl.fps.has(i)) {
       parts.push(chunkRows(GATE_IN_CHUNK));
       for (const c of pl.fps.get(i)) { parts.push(chunkRows(c.m)); ids.push(c.id); }

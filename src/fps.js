@@ -245,6 +245,7 @@ function drawFP(g) {
   for (const s of L.saws) pushS({ kind: 'saw', s }, s.x, s.y + s.r, 0);
   for (const p of G.projs) if (!(p.delay > 0)) pushS({ kind: 'proj', p }, p.x, p.y, (p.lane || 0) * LW);
   for (const b of G.bolts) pushS({ kind: 'bolt', b }, b.x, b.y, b.z || 0);
+  if (HUB) for (const q of netHere()) pushS({ kind: 'ghost', q }, q.rx + 5, q.ry + PH.ph, q.rz || 0);
   sprites.sort((a, b) => b.d - a.d);
   for (const o of sprites) drawFPSprite(g, o, C, B);
   // held rifle
@@ -280,10 +281,12 @@ function drawFPSprite(g, o, C, B) {
   else if (o.kind === 'spring') drawSpring(S, o.s, G);
   else if (o.kind === 'saw') drawSaw(S, o.s, G.t);
   else if (o.kind === 'proj') drawProj(S, o.p);
+  else if (o.kind === 'ghost') drawPeerBody(S, o.q);
   S.restore();
+  if (o.kind === 'ghost') o.q.scr = { x: o.sx, y: sy - 20 * k };
   const left = o.sx - 32 * k, top = sy - 72 * k, wpx = 64 * k;
   if (left > VW || left + wpx < 0) return;
-  const e = o.e, glow = e && (e.type === 'ember' || e.type === 'star' || e.type === 'check' || e.type === 'beacon' || e.type === 'gate' || e.type === 'wpn');
+  const e = o.e, glow = e && (e.type === 'ember' || e.type === 'star' || e.type === 'check' || e.type === 'beacon' || e.type === 'gate' || e.type === 'wpn' || e.type === 'rift');
   const midY = sy - 8 * k;
   if (glow && vis(o.sx, midY)) { g.globalCompositeOperation = 'lighter'; warmGlow(g, o.sx, midY, Math.min(160, (e.type === 'ember' ? 10 : e.type === 'gate' ? 50 : 26) * k), 0.4); g.globalCompositeOperation = 'source-over'; }
   g.globalAlpha = glow ? 1 : clamp(fpLight(o.d, C) * 1.4, 0.2, 1);
