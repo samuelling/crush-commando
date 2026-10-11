@@ -99,7 +99,7 @@ function fpControl(P, inp, dt) {
 // ---------- raycast renderer ----------
 const FPV = { ex: 0, ey: 0, ez: 0, yaw: 0, hz: 120, cx: VW / 2 };
 const FP_PLANE = (VW / 2) / FP_F;
-function fpLight(d, C) { return clamp(1.25 - d / (230 + G.hp / MAXHP * 80), C.min, 1); }
+function fpLight(d, C) { return clamp(1.25 - d / ((230 + G.hp / MAXHP * 80) * (1 - (WXV.off ? 0 : WXV.fog) * 0.45)), C.min, 1); }
 let FPBUF = null;
 function fpBuffers() {
   if (!FPBUF) {
@@ -147,6 +147,7 @@ function drawFP(g) {
   const bg = G.bgs[w] || (G.bgs[w] = makeBG(w));
   const off = -((((yaw / (Math.PI * 2)) * 2048 + P.x * 0.05) % 1024) + 1024) % 1024;
   g.drawImage(bg.far, Math.round(off), Math.round(hz - VH * 0.44 - 30)); g.drawImage(bg.far, Math.round(off) + 1024, Math.round(hz - VH * 0.44 - 30));
+  wxSkyTint(g, w);
   g.fillStyle = `rgba(${C.fog[0] * 0.3 | 0},${C.fog[1] * 0.3 | 0},${C.fog[2] * 0.3 | 0},0.55)`; g.fillRect(0, 0, VW, VH);
   // colours
   const fog = C.fog;
@@ -261,6 +262,8 @@ function drawFP(g) {
   const vg = g.createRadialGradient(VW / 2, VH / 2, VH * 0.35, VW / 2, VH / 2, VW * 0.65);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)');
   g.fillStyle = vg; g.fillRect(0, 0, VW, VH);
+  if (!WXV.off && WXV.day >= 0 && WXV.day < 1) { g.fillStyle = `rgba(8,10,30,${(1 - WXV.day) * 0.22})`; g.fillRect(0, 0, VW, VH); }
+  { let dy = (G.yaw - (WXP.lastYaw || 0)) * 260; WXP.lastYaw = G.yaw; if (Math.abs(dy) > 60) dy = 0; wxDrawFront(g, dy, true); }
   drawLaneMap(g);
   if (G.hurtT > 0) { g.fillStyle = `rgba(170,20,10,${G.hurtT})`; g.fillRect(0, 0, VW, VH); }
 }

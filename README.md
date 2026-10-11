@@ -1,6 +1,6 @@
 # Crush Commando
 
-A run-and-gun platformer about one man fighting his way down through his bad memories of failed crushes, all the way to the Heartbreak Core, where he plants a very large explosive.
+A run-and-gun platformer about one man fighting his way down through his memories of failed crushes, all the way to the Heartbreak Core, where he plants a very large explosive. He wins. That's the tragedy: with the hurt gone, so is everything else, and he comes out strong, glossy and alone, livestreaming his framework for women to a million strangers.
 
 It plays side-on like Contra. In parts of every mission the camera drops into first person and the flat level turns out to be one slice of a wider 3D canyon. You can step off the path into hidden lanes with their own terrain, enemies and weapon caches.
 
@@ -25,6 +25,9 @@ How it fits together: the hub page loads each game in a frame and owns a WebSock
 - **Weapons:** 8-way aiming, hold to auto-fire, crouch to duck shots. Flying pods drop the Spread Gun, Machine Gun, Laser and Flamethrower.
 - **Moves unlocked by beating bosses:** double jump, dash, wall jump, glide.
 - **Collectibles:** Confidence sparks, plus 3 hidden Mixtapes per stage (45 total).
+- **The enemies are memories of crushes:** faded, flickering kids with hairstyles you'd recognise anywhere and cheeks that still blush. There are unsent love letters that flap like moths, a phone that fires "Seen" bubbles, and the letterman-jacket guy she chose instead. Each boss takes a feeling with it when it dies.
+- **Your real weather:** the game looks up your rough location (from your internet address, no prompt) and current conditions from Open-Meteo. Day, dusk, night and dawn follow the real sun. Rain, snow, fog, cloud and thunderstorms fall in side view and first person. You can switch it off in the pause menu, or preview any state with `?weather=rain|drizzle|storm|snow|fog|cloudy|clear&hour=21.5`.
+- **First-person music by bellweather:** in 3D zones the soundtrack becomes a WebAudio port of [bellweather](https://github.com/samuelling/bellweather), Sam's weather-driven norns drone bell. It has the drone that opens up by day and closes down at night, wind and gusts, Karplus-Strong plucks (snappy for rain, soft for snow) whose density follows the chance of rain, and the six-partial bell. It runs on the same live weather.
 - **Extras:** procedural chiptune music and sound, saves in the browser, and keyboard, gamepad and touch controls.
 
 ## Controls
@@ -71,6 +74,9 @@ src/
   bosses.js           the five memory bosses
   fps.js              first-person raycaster, free-look controls, hidden 3D lanes
   combat.js           weapons, bullets, troopers, weapon pods, hero art
+  memories.js         the enemies drawn as crush memories, their shots, photo-scrap deaths
+  weather.js          live local weather and time of day: sky, light, rain, snow, fog, lightning
+  bell.js             first-person music: WebAudio port of bellweather's WeatherBell engine
   net.js              rifts, friends, shared kills (combined game only)
   story.js            intro, mission briefings, ending text
   main.js             input, scenes, HUD, menus, main loop

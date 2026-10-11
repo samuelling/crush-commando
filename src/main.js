@@ -498,6 +498,7 @@ function killEnemy(e, stomp) {
   burst(G, e.x + e.w / 2, e.y + e.h / 2, 12, e.type === 'runner' ? '#5a2a50' : col.b, 100, 300);
   burst(G, e.x + e.w / 2, e.y + e.h / 2, 4, '#ff5a8a', 70, 0, true);
   burst(G, e.x + e.w / 2, e.y + e.h / 2, 5, '#ffcf6a', 60, 0, true);
+  memoryScraps(e);
 }
 function startGoal(e) {
   e.planted = true; G.goalEnt = e; sfx('beep');
@@ -551,10 +552,10 @@ const TUT = [
 ];
 function tutorialText(w) { const t = TUT[w]; return G.lastInput === 'touch' ? t.touch : t.kb; }
 const POWERS = [
-  { name: 'Second Wind', desc: 'Double jump. When life knocks you down, you jump again, in midair.' },
-  { name: 'Smooth Move', desc: 'Dash in any direction, even straight up. Smashes cracked stone and any memory in the way.' },
-  { name: 'Nothing Stops Me', desc: 'Wall jump. Slide down walls and kick off them. Climb a single wall by kicking back and forth.' },
-  { name: 'Cool Head', desc: 'Glide. After a double jump, keep holding jump to float. Ride hot vents upward.' },
+  { name: 'Second Wind', desc: 'Double jump. When life knocks you down, you jump again. You stop remembering why it hurt.' },
+  { name: 'Smooth Move', desc: 'Dash in any direction, even up. Smashes stone and memories. You learn your first line. It works. It feels like nothing.' },
+  { name: 'Nothing Stops Me', desc: 'Wall jump. Kick off walls, climb anything. Nobody can reach you now. Nobody tries.' },
+  { name: 'Cool Head', desc: 'Glide. After a double jump, hold jump to float, and ride hot vents up. Everything looks small from up here.' },
 ];
 
 // ---------- ambient particles ----------
@@ -632,6 +633,7 @@ function drawBG(g, w, cam) {
   }
   const mo = -(((cam * 0.4) % 1024) + 1024) % 1024;
   g.drawImage(bg.mid, Math.round(mo), 0); g.drawImage(bg.mid, Math.round(mo) + 1024, 0);
+  wxSkyTint(g, w);
 }
 function drawGearShape(g, x, y, r, rot, c) {
   g.fillStyle = c; g.beginPath();
@@ -673,6 +675,7 @@ function drawPlayer(g) {
   } else drawFlame(g, fx, flameY, 0.7 + hp / MAXHP * 0.33 + (P.dashT > 0 ? 0.35 : 0), G.t, lean);
 }
 function drawProj(g, p) {
+  if (!(p.delay > 0) && drawMemoryShot(g, p)) return;
   if (p.delay > 0) {
     const a = 0.4 + Math.sin(G.t * 20) * 0.3;
     g.fillStyle = `rgba(255,220,120,${a})`; g.beginPath(); g.moveTo(p.x - 5, 18); g.lineTo(p.x + 5, 18); g.lineTo(p.x, 26); g.fill();
@@ -739,7 +742,7 @@ function drawPlay(g) {
   g.globalAlpha = 1;
   g.restore();
   // lighting
-  drawLighting(g, G.world, buildLights(), cam - Math.round(sx), G.darkBoost);
+  drawLighting(g, G.world, buildLights(), cam - Math.round(sx), G.darkBoost + wxDarkBoost());
   g.save(); g.translate(-cam + Math.round(sx), Math.round(sy));
   g.globalCompositeOperation = 'lighter';
   const P = G.P;
@@ -752,6 +755,7 @@ function drawPlay(g) {
   g.globalCompositeOperation = 'source-over';
   g.restore();
   drawAmbient(g);
+  { let cdx = cam - WXP.lastCam; WXP.lastCam = cam; if (Math.abs(cdx) > 40) cdx = 0; wxDrawFront(g, cdx, false); }
   if (G.flash > 0) { g.fillStyle = `rgba(255,240,210,${Math.min(0.8, G.flash * 2)})`; g.fillRect(0, 0, VW, VH); }
   if (G.pstate === 'dead' && G.pt < 0.5) { g.fillStyle = `rgba(0,0,0,${1 - G.pt / 0.5})`; g.fillRect(0, 0, VW, VH); }
 }
@@ -814,6 +818,7 @@ function drawHUD(c) {
   c.fillStyle = WCOL[wl]; c.beginPath(); c.arc(16, 35, 5, 0, 7); c.fill();
   txt(c, wl === 'N' ? '·' : wl, 16, 38, 8, '#1a0a0a', 'center');
   txt(c, WEAPONS[wl].name, 25, 38, 7, '#ffe6c4');
+  if (WX.live && !SAVE.wxOff) txt(c, wxLabel(true), 10, 53, 6, 'rgba(255,230,200,0.6)');
   const tx = G.touch ? VW - 34 : VW - 10;
   txt(c, fmtTime(G.time), tx, 21, 9, '#ffe6c4', 'right');
   if (G.escape) { const s = Math.max(0, G.escape.t); txt(c, `ESCAPE ${s.toFixed(1)}`, VW / 2, 92, 18, Math.sin(G.t * 12) > 0 ? '#ff4a3a' : '#ffe0a0', 'center', FD); }
@@ -868,7 +873,7 @@ function menuClick(items, x0, y0, dy, w) {
   for (let i = 0; i < items.length; i++) { const y = y0 + i * dy; if (Math.abs(G.click.x - x0) < w / 2 && G.click.y > y - dy / 2 - 2 && G.click.y < y + dy / 2 - 2) return i; }
   return -1;
 }
-function pauseItems() { return ['Resume', 'Restart stage', 'Back to map', `Music: ${SAVE.music ? 'on' : 'off'}`, `Sound: ${SAVE.sfx ? 'on' : 'off'}`]; }
+function pauseItems() { return ['Resume', 'Restart stage', 'Back to map', `Music: ${SAVE.music ? 'on' : 'off'}`, `Sound: ${SAVE.sfx ? 'on' : 'off'}`, `Live weather: ${SAVE.wxOff ? 'off' : 'on'}`]; }
 function updPause(inp) {
   const items = pauseItems();
   menuNav(inp, items.length);
@@ -883,10 +888,11 @@ function updPause(inp) {
   else if (pick === 2) { G.scene = 'map'; G.overlay = null; G.sel = G.world * 4 + G.idx; playSong('map'); }
   else if (pick === 3) { SAVE.music = !SAVE.music; setMusicOn(SAVE.music); writeSave(); }
   else if (pick === 4) { SAVE.sfx = !SAVE.sfx; setSfxOn(SAVE.sfx); writeSave(); }
+  else if (pick === 5) { SAVE.wxOff = !SAVE.wxOff; writeSave(); if (!SAVE.wxOff) wxFetch(); }
 }
 function drawPause(c) {
   c.fillStyle = 'rgba(6,4,8,0.6)'; c.fillRect(0, 0, VW, VH);
-  panel(c, VW / 2 - 100, 56, 200, 166);
+  panel(c, VW / 2 - 100, 56, 200, 186);
   txt(c, 'Paused', VW / 2, 84, 18, '#fff1dc', 'center', FD);
   pauseItems().forEach((s, i) => {
     const y = 110 + i * 20, on = i === G.menu;
@@ -922,6 +928,7 @@ function drawAbility(c) {
   txt(c, 'New move unlocked', VW / 2, 98, 10, '#d8cbbb', 'center');
   txt(c, p.name, VW / 2, 126, 26, '#fff4e2', 'center', FD);
   wrap(c, p.desc, 230, 8).forEach((l, i) => txt(c, l, VW / 2, 152 + i * 12, 8, '#e8dccb', 'center'));
+  txt(c, `Lost: ${LOSSES[G.world]}`, VW / 2, 194, 7, '#ff9aaa', 'center');
   if (G.overlayT <= 0 && Math.sin(G.t * 5) > -0.3) txt(c, `${btn('jump')} to continue`, VW / 2, 208, 8, '#ffcf8a', 'center');
 }
 
@@ -1029,6 +1036,7 @@ function drawMapUI(c) {
   const ab = abilitiesFor(Math.min(4, Math.floor(SAVE.unlocked / 4)));
   const owned = POWERS.filter((p, i) => [ab.dj, ab.dash, ab.wall, ab.glide][i]).map(p => p.name);
   txt(c, owned.length ? owned.join(' · ') : 'No moves unlocked yet', VW - 14, 42, 7, 'rgba(255,230,200,0.65)', 'right');
+  if (WX.live && !SAVE.wxOff) txt(c, 'Live weather · ' + wxLabel(), VW - 14, 56, 7, 'rgba(190,220,255,0.7)', 'right');
   if (w > 0) txt(c, '‹', 16, 158, 22, 'rgba(255,220,180,0.7)', 'center', FD);
   if ((w + 1) * 4 <= Math.min(19, SAVE.unlocked)) txt(c, '›', VW - 16, 158, 22, 'rgba(255,220,180,0.7)', 'center', FD);
   // info panel
@@ -1045,37 +1053,101 @@ function drawMapUI(c) {
 // ---------- ending ----------
 function updEnding(inp, dt) {
   G.endT += dt;
-  if (G.endT > 4 && (inp.P.jump || inp.P.confirm || G.click)) { sfx('ok'); G.scene = 'map'; G.sel = 19; playSong('map'); }
+  if (G.endT > 10.5 && G.endT - dt <= 10.5) playSong('');
+  if (G.endT > 20 && (inp.P.jump || inp.P.confirm || G.click)) { sfx('ok'); G.scene = 'map'; G.sel = 19; playSong('map'); }
+  else if (G.endT < 10 && G.endT > 4 && (inp.P.jump || inp.P.confirm || G.click)) G.endT = 10;
 }
 function drawEndingScene(g) {
-  const t = G.endT, k = Math.min(1, t / 8);
-  const gr = g.createLinearGradient(0, 0, 0, VH);
-  gr.addColorStop(0, `rgb(${Math.round(30 + 90 * k)},${Math.round(30 + 70 * k)},${Math.round(70 + 60 * k)})`);
-  gr.addColorStop(0.7, `rgb(${Math.round(80 + 170 * k)},${Math.round(50 + 120 * k)},${Math.round(60 + 50 * k)})`);
-  gr.addColorStop(1, `rgb(${Math.round(120 + 135 * k)},${Math.round(80 + 130 * k)},${Math.round(60 + 40 * k)})`);
-  g.fillStyle = gr; g.fillRect(0, 0, VW, VH);
-  const ex = 90, ey = 190, f = Math.max(0, 1 - t / 7);
-  for (let i = 0; i < 9; i++) { const a = i * 0.7 + t * 0.2, r = (30 + i * 6) * (0.6 + Math.min(1, t / 2) * 0.6); circ(g, ex + Math.cos(a) * 20, ey - 30 - i * 8 + Math.sin(a) * 8, r * 0.5, `rgba(255,${120 + i * 12},60,${0.25 * f + 0.05})`); }
-  circ(g, ex, ey - 110, 40 * (0.5 + Math.min(1, t / 2) * 0.5), `rgba(255,190,120,${0.35 * f + 0.08})`);
-  const R = rng(5);
-  for (let layer = 0; layer < 2; layer++) {
-    g.fillStyle = layer ? '#1a1418' : '#2c2228'; g.beginPath(); g.moveTo(0, VH);
-    for (let x = 0; x <= VW; x += 20) g.lineTo(x, 200 + layer * 24 + Math.sin(x * 0.02 + layer * 2) * 8 + R() * 4);
-    g.lineTo(VW, VH); g.fill();
+  const t = G.endT;
+  if (t < 10.5) {
+    // part one: he walks out of the blast into the sunrise
+    const k = Math.min(1, t / 8);
+    const gr = g.createLinearGradient(0, 0, 0, VH);
+    gr.addColorStop(0, `rgb(${Math.round(30 + 90 * k)},${Math.round(30 + 70 * k)},${Math.round(70 + 60 * k)})`);
+    gr.addColorStop(0.7, `rgb(${Math.round(80 + 170 * k)},${Math.round(50 + 120 * k)},${Math.round(60 + 50 * k)})`);
+    gr.addColorStop(1, `rgb(${Math.round(120 + 135 * k)},${Math.round(80 + 130 * k)},${Math.round(60 + 40 * k)})`);
+    g.fillStyle = gr; g.fillRect(0, 0, VW, VH);
+    const ex = 90, ey = 190, f = Math.max(0, 1 - t / 7);
+    for (let i = 0; i < 9; i++) { const a = i * 0.7 + t * 0.2, r = (30 + i * 6) * (0.6 + Math.min(1, t / 2) * 0.6); circ(g, ex + Math.cos(a) * 20, ey - 30 - i * 8 + Math.sin(a) * 8, r * 0.5, `rgba(255,${120 + i * 12},60,${0.25 * f + 0.05})`); }
+    circ(g, ex, ey - 110, 40 * (0.5 + Math.min(1, t / 2) * 0.5), `rgba(255,190,120,${0.35 * f + 0.08})`);
+    const R = rng(5);
+    for (let layer = 0; layer < 2; layer++) {
+      g.fillStyle = layer ? '#1a1418' : '#2c2228'; g.beginPath(); g.moveTo(0, VH);
+      for (let x = 0; x <= VW; x += 20) g.lineTo(x, 200 + layer * 24 + Math.sin(x * 0.02 + layer * 2) * 8 + R() * 4);
+      g.lineTo(VW, VH); g.fill();
+    }
+    const hx = 150 + Math.min(t, 10) * 18, hy = 222 + Math.sin(hx * 0.02 + 2) * 6;
+    g.save(); g.translate(hx, hy); g.scale(3, 3); heroBody(g, { run: true, st: Math.floor(t * 6) % 4, t: G.t, glasses: true, stage: 5 }); g.restore();
+    for (let i = 0; i < 6; i++) { const bx = ((t * 20 + i * 90) % 560) - 40, by = 70 + i * 9 + Math.sin(t * 2 + i) * 4; rect(g, Math.round(bx), Math.round(by), 3, 1, '#1a1418'); rect(g, Math.round(bx) + 1, Math.round(by) - (Math.sin(t * 12 + i) > 0 ? 1 : 0), 1, 1, '#1a1418'); }
+    if (t > 8.5) { g.fillStyle = `rgba(0,0,0,${Math.min(1, (t - 8.5) / 2)})`; g.fillRect(0, 0, VW, VH); }
+    return;
   }
-  const hx = 150 + Math.min(t, 10) * 18, hy = 222 + Math.sin(hx * 0.02 + 2) * 6;
-  g.save(); g.translate(hx, hy); g.scale(3, 3); heroBody(g, { run: true, st: Math.floor(t * 6) % 4, t: G.t, glasses: true }); g.restore();
-  for (let i = 0; i < 6; i++) { const bx = ((t * 20 + i * 90) % 560) - 40, by = 70 + i * 9 + Math.sin(t * 2 + i) * 4; rect(g, Math.round(bx), Math.round(by), 3, 1, '#1a1418'); rect(g, Math.round(bx) + 1, Math.round(by) - (Math.sin(t * 12 + i) > 0 ? 1 : 0), 1, 1, '#1a1418'); }
+  // part two: later. A penthouse at night, a ring light, a podcast mic, a livestream. Nobody else.
+  const u = t - 10.5;
+  g.fillStyle = '#0c0f1c'; g.fillRect(0, 0, VW, VH);
+  // the window and the city he can see but isn't part of
+  const wx = 18, wy = 26, ww = 236, wh = 168;
+  const sky = g.createLinearGradient(0, wy, 0, wy + wh); sky.addColorStop(0, '#0a0d24'); sky.addColorStop(1, '#2a1838');
+  g.fillStyle = sky; g.fillRect(wx, wy, ww, wh);
+  const R = rng(11);
+  for (let i = 0; i < 26; i++) {
+    const bw = 8 + Math.floor(R() * 14), bh = 30 + Math.floor(R() * 110), bx = wx + Math.floor(R() * ww), by = wy + wh - bh;
+    rect(g, bx, by, bw, bh, '#11142a');
+    for (let yy = by + 4; yy < wy + wh - 3; yy += 6) for (let xx = bx + 2; xx < bx + bw - 2; xx += 4) if (R() < 0.35) rect(g, xx, yy, 2, 2, Math.sin(u * 0.7 + xx * 3 + yy) > 0.93 ? '#1a1d30' : '#ffd98a');
+  }
+  g.fillStyle = 'rgba(160,190,255,0.06)'; g.beginPath(); g.moveTo(wx + 30, wy); g.lineTo(wx + 70, wy); g.lineTo(wx + 20, wy + wh); g.lineTo(wx - 20, wy + wh); g.fill();
+  rect(g, wx - 3, wy - 3, ww + 6, 3, '#1c2034'); rect(g, wx - 3, wy + wh, ww + 6, 3, '#1c2034'); rect(g, wx - 3, wy, 3, wh, '#1c2034'); rect(g, wx + ww, wy, 3, wh, '#1c2034'); rect(g, wx + ww / 2 - 1, wy, 3, wh, '#1c2034');
+  // floor
+  rect(g, 0, 214, VW, VH - 214, '#121524'); rect(g, 0, 214, VW, 1, '#22263a');
+  // ring light
+  const rx = 410, ry = 104;
+  g.globalCompositeOperation = 'lighter'; warmGlow(g, rx, ry, 110, 0.22, '220,235,255'); g.globalCompositeOperation = 'source-over';
+  g.strokeStyle = '#eef4ff'; g.lineWidth = 4; g.beginPath(); g.arc(rx, ry, 30, 0, Math.PI * 2); g.stroke();
+  rect(g, rx - 1, ry + 30, 2, 184 - ry, '#2a2e40');
+  // him, bigger than before, behind the desk
+  const hb = 1 + Math.sin(u * 2) * 0.01;
+  g.save(); g.translate(rx, 214); g.scale(4.4, 4.4 * hb); heroBody(g, { t: G.t, glasses: true, stage: 5 }); g.restore();
+  // desk, mic, phone on a tripod
+  rect(g, 330, 180, 150, 34, '#1b1e2e'); rect(g, 330, 180, 150, 2, '#2c3046');
+  rect(g, 372, 154, 2, 26, '#3a3d4a'); rect(g, 366, 142, 14, 14, '#2a2c34'); for (let i = 0; i < 3; i++) rect(g, 368, 145 + i * 3, 10, 1, '#4a4d5a');
+  rect(g, 458, 144, 2, 36, '#3a3d4a'); rect(g, 450, 128, 18, 16, '#2a2c34'); rect(g, 452, 130, 14, 12, '#8fd0ff');
+  if (Math.sin(u * 3) > 0) rect(g, 464, 131, 1, 1, '#ff3a3a');
+  // the last soft thing he had, drifting out through the glass
+  const p = (u * 0.08) % 1, hx = rx - 20 - p * 190, hy = 150 - p * 70 + Math.sin(u * 1.3) * 6;
+  g.globalAlpha = Math.max(0, 0.75 - p * 0.75); heartIcon(g, hx, hy, 4, '#ff7aa0'); g.globalAlpha = 1;
 }
 function drawEndingUI(c) {
-  const t = G.endT;
-  const a = x => Math.max(0, Math.min(1, (t - x) / 1.2));
-  ENDING_LINES.forEach((l, i) => { c.globalAlpha = a(1 + i * 1.6); txt(c, l, VW / 2, 28 + i * 17 + (i === 4 ? 6 : 0), i === 4 ? 14 : 9, i === 4 ? '#fff4e2' : '#ffe6c4', 'center', i === 4 ? FD : FU); });
+  const t = G.endT, a = x => Math.max(0, Math.min(1, (t - x) / 1.2));
+  if (t < 10.5) {
+    const out = t > 8.5 ? Math.max(0, 1 - (t - 8.5) / 1.5) : 1;
+    ENDING_LINES.slice(0, 3).forEach((l, i) => { c.globalAlpha = a(1 + i * 2.2) * out; txt(c, l, VW / 2, 36 + i * 18, 9, '#ffe6c4', 'center'); });
+    c.globalAlpha = 1;
+    return;
+  }
+  const u = t - 10.5;
+  c.globalAlpha = a(11.2); txt(c, ENDING_LINES[3], VW / 2, 18, 9, '#d8e2ff', 'center');
+  c.globalAlpha = a(13.2); txt(c, ENDING_LINES[4], VW / 2, 252, 15, '#fff4e2', 'center', FD);
+  // neon sign
+  c.globalAlpha = a(11.6) * (0.85 + Math.sin(t * 9) * 0.05 + (Math.sin(t * 23) > 0.97 ? -0.5 : 0));
+  c.save(); c.shadowColor = '#ff3a8a'; c.shadowBlur = 12; txt(c, 'ALPHA', 410, 58, 16, '#ff6aa8', 'center', FD); c.restore();
+  // the stream: LIVE badge, viewers climbing, chat scrolling
+  c.globalAlpha = a(12);
+  c.fillStyle = '#d0202a'; rr(c, 262, 188, 30, 11, 3); c.fill(); txt(c, 'LIVE', 277, 196, 6, '#ffffff', 'center');
+  const viewers = Math.floor(1200 + Math.pow(Math.max(0, u), 2.2) * 900);
+  txt(c, `${viewers.toLocaleString('en-US')} watching`, 262, 209, 6, '#d8e2ff');
+  const n = Math.floor(u * 1.6);
+  for (let i = 0; i < 6; i++) {
+    const k = n - i; if (k < 0) continue;
+    const msg = ENDING_CHAT[(k * 7) % ENDING_CHAT.length], y = 176 - i * 11 - ((u * 1.6) % 1) * 11;
+    c.globalAlpha = a(12) * (1 - i / 6);
+    txt(c, `u${(k * 7919) % 9000 + 1000}: ${msg}`, 262, y, 6, i === 0 ? '#ffffff' : '#a8b4d8');
+  }
   let stars = 0; for (const key in SAVE.lv) stars += SAVE.lv[key].stars.filter(Boolean).length;
-  c.globalAlpha = a(9.5);
-  txt(c, 'MISSION COMPLETE', VW / 2, 138, 18, '#ff8aa0', 'center', FD);
-  txt(c, `Time ${fmtTime(SAVE.playTime)}  ·  Setbacks ${SAVE.deaths}  ·  Mixtapes ${stars}/45`, VW / 2, 154, 8, '#fff1dc', 'center');
-  c.globalAlpha = a(10.5) * (Math.sin(G.t * 5) > -0.3 ? 1 : 0); txt(c, `${btn('jump')} to return to the map`, VW / 2, 170, 8, '#3a1a10', 'center');
+  c.globalAlpha = a(16);
+  txt(c, 'MISSION ACCOMPLISHED', 136, 216, 12, '#ff8aa0', 'center', FD);
+  txt(c, `Time ${fmtTime(SAVE.playTime)} · Setbacks ${SAVE.deaths} · Mixtapes ${stars}/45`, 136, 228, 6, '#d8e2ff', 'center');
+  c.globalAlpha = a(18.5); txt(c, 'Everyone is watching him. Nobody is with him.', VW / 2, 34, 8, '#ff9aaa', 'center');
+  c.globalAlpha = a(20) * (Math.sin(G.t * 5) > -0.3 ? 0.9 : 0); txt(c, `${btn('jump')} to return to the map`, VW / 2, 266, 7, '#8a94b8', 'center');
   c.globalAlpha = 1;
 }
 function updIntro(inp, dt) {
@@ -1122,6 +1194,8 @@ function update(dt) {
   }
   if (G.scene !== sc0 && G.scene !== 'play') G.fade = 1;
   G.click = null;
+  wxTick(dt);
+  bellTick(dt);
   netTick(dt);
 }
 function render() {
@@ -1167,6 +1241,7 @@ function frame(now) {
 
 // ---------- boot ----------
 loadSave();
+wxInit();
 AU.musicOn = SAVE.music; AU.sfxOn = SAVE.sfx;
 G.sel = Math.min(SAVE.cursor, SAVE.unlocked);
 G.touch = matchMedia('(pointer: coarse)').matches;

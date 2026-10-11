@@ -89,7 +89,7 @@ function updateEnt(e, dt, G) {
       const dx = pcx - (e.x + 7), dy = pcy - (e.y + 7);
       if (e.cd <= 0 && Math.abs(dx) < 230 && Math.abs(dy) < 90) {
         const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
-        G.projs.push({ lane: e.lane || 0, x: e.x + 7 + e.face * 8, y: e.y + 6, vx: Math.cos(a) * 95, vy: Math.sin(a) * 95, r: 3.5, g: 0, life: 4, kind: 'orb', solid: true });
+        G.projs.push({ lane: e.lane || 0, x: e.x + 7 + e.face * 8, y: e.y + 6, vx: Math.cos(a) * 95, vy: Math.sin(a) * 95, r: 3.5, g: 0, life: 4, kind: 'orb', solid: true, seen: true });
         e.cd = 3.2; e.fire = 0.2;
         if (Math.abs(dx) < 260) sfx('shoot');
       }
@@ -145,6 +145,7 @@ function drawBlob(g, x, y, w, h, col, face, t, fuzzy) {
 }
 function drawEnt(g, e, G) {
   const w = G.world, col = ENEMY_COL[w], th = THEMES[w], x = Math.round(e.x), y = Math.round(e.y);
+  if (drawMemory(g, e)) return;
   switch (e.type) {
     case 'ember': {
       const tw = Math.sin(e.t * 6) > 0.6;

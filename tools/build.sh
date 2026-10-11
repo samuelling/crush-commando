@@ -10,7 +10,7 @@ mkdir -p cc
   echo '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
   cat src/head.html
   echo '<script>'
-  for f in core chunks levelgen audio render entities bosses fps combat story net main; do cat "src/$f.js"; done
+  for f in core chunks levelgen audio render entities bosses fps combat story memories weather bell net main; do cat "src/$f.js"; done
   echo '</script>'
   echo '</body></html>'
 } > cc/index.html

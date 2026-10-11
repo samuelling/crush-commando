@@ -1725,7 +1725,7 @@ function updateEnt(e, dt, G) {
       const dx = pcx - (e.x + 7), dy = pcy - (e.y + 7);
       if (e.cd <= 0 && Math.abs(dx) < 230 && Math.abs(dy) < 90) {
         const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
-        G.projs.push({ lane: e.lane || 0, x: e.x + 7 + e.face * 8, y: e.y + 6, vx: Math.cos(a) * 95, vy: Math.sin(a) * 95, r: 3.5, g: 0, life: 4, kind: 'orb', solid: true });
+        G.projs.push({ lane: e.lane || 0, x: e.x + 7 + e.face * 8, y: e.y + 6, vx: Math.cos(a) * 95, vy: Math.sin(a) * 95, r: 3.5, g: 0, life: 4, kind: 'orb', solid: true, seen: true });
         e.cd = 3.2; e.fire = 0.2;
         if (Math.abs(dx) < 260) sfx('shoot');
       }
@@ -1781,6 +1781,7 @@ function drawBlob(g, x, y, w, h, col, face, t, fuzzy) {
 }
 function drawEnt(g, e, G) {
   const w = G.world, col = ENEMY_COL[w], th = THEMES[w], x = Math.round(e.x), y = Math.round(e.y);
+  if (drawMemory(g, e)) return;
   switch (e.type) {
     case 'ember': {
       const tw = Math.sin(e.t * 6) > 0.6;
@@ -2442,7 +2443,7 @@ function fpControl(P, inp, dt) {
 // ---------- raycast renderer ----------
 const FPV = { ex: 0, ey: 0, ez: 0, yaw: 0, hz: 120, cx: VW / 2 };
 const FP_PLANE = (VW / 2) / FP_F;
-function fpLight(d, C) { return clamp(1.25 - d / (230 + G.hp / MAXHP * 80), C.min, 1); }
+function fpLight(d, C) { return clamp(1.25 - d / ((230 + G.hp / MAXHP * 80) * (1 - (WXV.off ? 0 : WXV.fog) * 0.45)), C.min, 1); }
 let FPBUF = null;
 function fpBuffers() {
   if (!FPBUF) {
@@ -2490,6 +2491,7 @@ function drawFP(g) {
   const bg = G.bgs[w] || (G.bgs[w] = makeBG(w));
   const off = -((((yaw / (Math.PI * 2)) * 2048 + P.x * 0.05) % 1024) + 1024) % 1024;
   g.drawImage(bg.far, Math.round(off), Math.round(hz - VH * 0.44 - 30)); g.drawImage(bg.far, Math.round(off) + 1024, Math.round(hz - VH * 0.44 - 30));
+  wxSkyTint(g, w);
   g.fillStyle = `rgba(${C.fog[0] * 0.3 | 0},${C.fog[1] * 0.3 | 0},${C.fog[2] * 0.3 | 0},0.55)`; g.fillRect(0, 0, VW, VH);
   // colours
   const fog = C.fog;
@@ -2604,6 +2606,8 @@ function drawFP(g) {
   const vg = g.createRadialGradient(VW / 2, VH / 2, VH * 0.35, VW / 2, VH / 2, VW * 0.65);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)');
   g.fillStyle = vg; g.fillRect(0, 0, VW, VH);
+  if (!WXV.off && WXV.day >= 0 && WXV.day < 1) { g.fillStyle = `rgba(8,10,30,${(1 - WXV.day) * 0.22})`; g.fillRect(0, 0, VW, VH); }
+  { let dy = (G.yaw - (WXP.lastYaw || 0)) * 260; WXP.lastYaw = G.yaw; if (Math.abs(dy) > 60) dy = 0; wxDrawFront(g, dy, true); }
   drawLaneMap(g);
   if (G.hurtT > 0) { g.fillStyle = `rgba(170,20,10,${G.hurtT})`; g.fillRect(0, 0, VW, VH); }
 }
@@ -2868,16 +2872,7 @@ function planPods(L, seed) {
 }
 
 // ---------- drawing ----------
-function drawRunner(g, e) {
-  const x = Math.round(e.x), y = Math.round(e.y), f = Math.sign(e.vx) || -1, st = Math.floor(e.t * 10) % 2;
-  const body = e.flash > 0 ? '#ffffff' : '#2a1630';
-  rect(g, x + 2 + (st ? 0 : 2), y + 10, 2, 4, body); rect(g, x + 6 - (st ? 0 : 2), y + 10, 2, 4, body);
-  rect(g, x + 1, y + 4, 8, 7, body); rect(g, x + 2, y, 6, 5, body);
-  rect(g, x + (f > 0 ? 4 : 2), y + 2, 4, 1, '#ff5a8a');
-  g.fillStyle = '#ff5a8a'; g.beginPath(); const hx = x + 5, hy = y + 6; g.moveTo(hx, hy + 2); g.lineTo(hx - 2, hy); g.lineTo(hx - 1, hy - 1); g.lineTo(hx, hy); g.lineTo(hx + 1, hy - 1); g.lineTo(hx + 2, hy); g.fill();
-  rect(g, x + 4, y + 5, 1, 2, '#1a0a14');
-  if (e.shooter) rect(g, f > 0 ? x + 8 : x - 4, y + 5, 6, 2, e.aimT > 0 ? '#ffe08a' : '#4a4a52');
-}
+function drawRunner(g, e) { drawMemoryRunner(g, e); }
 function drawPod(g, e) {
   const x = e.x, y = e.y, fl = Math.sin(e.t * 20) > 0;
   g.fillStyle = e.flash > 0 ? '#ffffff' : '#9aa0aa'; g.beginPath(); g.ellipse(x, y, 10, 5, 0, 0, Math.PI * 2); g.fill();
@@ -2907,7 +2902,11 @@ function heroBody(g, o) {
     rect(g, a, -6, 3, 5, pants); rect(g, b, -6, 3, 5, pants2); rect(g, a, -1, 3, 1, boot); rect(g, b, -1, 3, 1, boot);
   }
   const ty = o.crouch ? -10 : -13;
+  const stg = o.stage || 0;
   rect(g, -4, ty, 8, 7, skin); rect(g, -4, ty, 2, 7, skin2); rect(g, -2, ty + 2, 5, 1, skin2); rect(g, 0, ty + 4, 1, 2, skin2); rect(g, -4, ty + 6, 8, 1, '#5a3a1c');
+  if (stg >= 2) { rect(g, -5, ty, 1, 4, skin2); rect(g, 4, ty, 1, 4, skin); }
+  if (stg >= 5) { rect(g, -4, ty + 1, 8, 5, '#15151c'); rect(g, -5, ty, 1, 3, skin2); rect(g, 4, ty, 1, 3, skin); }
+  if (stg >= 3) { rect(g, -2, ty + 1, 5, 1, '#ffd84a'); rect(g, 0, ty + 2, 1, 1, '#ffd84a'); }
   const hy = ty - 6;
   rect(g, -3, hy, 6, 6, '#e2a878'); rect(g, -3, hy - 1, 6, 2, '#2a1a10'); rect(g, 3, hy + 4, 1, 2, '#c08858');
   rect(g, -3, hy + 1, 6, 1, pal.band || '#d0302a');
@@ -2927,7 +2926,7 @@ function drawCommando(g) {
   const [ax, ay] = G.aim || [P.face, 0];
   const face = ax !== 0 ? Math.sign(ax) : P.face;
   g.save(); g.translate(fx, fy); g.scale(P.sx * face, P.sy);
-  heroBody(g, { crouch: P.crouch, air: !P.onGround, run, st, t: G.t, glasses: G.world === 4 });
+  heroBody(g, { crouch: P.crouch, air: !P.onGround, run, st, t: G.t, glasses: G.world === 4, stage: G.world });
   g.restore();
   const gy = fy + (P.crouch ? -8 : -10);
   g.strokeStyle = '#d9a070'; g.lineWidth = 2; g.beginPath(); g.moveTo(fx, gy); g.lineTo(fx + ax * 4, gy + ay * 4); g.stroke();
@@ -2966,27 +2965,666 @@ function drawShrine(g, e) {
   }
 }
 // ===================== STORY =====================
+// A hero's tragedy. He goes down into his own heart to kill the memories that hurt, and he wins:
+// no more sadness, no more insecurity. No more anything. He comes out strong, glossy and alone.
 const INTRO = [
   'Every crush. Every rejection. Every "haha you\'re sweet."',
-  'The bad memories have dug in deep, and now they fight back.',
-  'One man is going in after them. All the way down.',
-  'Down to the core of his heartbreak.',
+  'The memories still ache, so he has decided the ache is the enemy.',
+  'He will go down into his own heart and kill every last one of them.',
   'He is bringing guns. And one very large explosive.',
+  'He thinks this is how you stop hurting.',
 ];
+// The briefings are his own inner voice, a little colder every mission.
 const BRIEFS = [
-  'MISSION 1. Fourth grade. You checked YES on her note. She checked MAYBE, then gave it to Kevin. The playground memories are crawling out. Clear them.',
-  'MISSION 2. Down here are the letters you wrote and never sent. Hundreds of them, hardened into crystal and echoing. Shoot them to pieces.',
-  'MISSION 3. Seen, 9:41 PM. You waited for a reply that never came. Time itself is the enemy in these spires. Make it pay.',
-  'MISSION 4. "Let\'s just be friends." Prom night left a glacier in your chest. Break the ice.',
-  'MISSION 5. The core of your heartbreak, where every bad memory is born. Fight down to it, plant the charge, and get out before it blows.',
+  'MISSION 1. Fourth grade. You checked YES on her note. She checked MAYBE, then gave it to Kevin. She was kind to you once, and that is exactly why it hurts. Clear the playground.',
+  'MISSION 2. The letters you wrote and never sent. Every honest thing you ever felt, hardened into crystal and echoing. Honesty is how they get you. Shoot them to pieces.',
+  'MISSION 3. Seen, 9:41 PM. You waited all night for a reply. Real men don\'t wait. Real men don\'t double text. Make time itself pay.',
+  'MISSION 4. "Let\'s just be friends." You can feel a cold spreading in your chest now. Good. Cold is strength. Break the last warm thing left in these peaks.',
+  'MISSION 5. The core, where every feeling you have is born. The hurt, and everything that came with it. Plant the charge. You won\'t need any of it where you\'re going.',
+];
+// What each memory boss takes with it when it dies (shown with the move it unlocks).
+const LOSSES = [
+  'the way your stomach flipped when she laughed',
+  'the urge to tell anyone the truth',
+  'hope, the kind that waits up',
+  'warmth',
 ];
 const ENDING_LINES = [
   'The Heartbreak Core goes up in a ball of fire.',
-  'He walks away. He does not look back. Cool guys never look back.',
-  'The bad memories are gone. Every one of them.',
-  'He is a new man now: tall, square-jawed, unstoppable.',
-  'He will never fail again. Ever.',
+  'He walks out. He does not look back. He has no reason to.',
+  'No more sadness. No more insecurity. No more anything.',
+  'He is strong now. He has a podcast. He has a framework for women.',
+  'He will never fail again. He will never feel again.',
 ];
+// The live chat in the last scene.
+const ENDING_CHAT = ['king', 'W', 'teach me bro', 'alpha mindset', 'sigma', 'drop the course link', 'what time do u wake up', 'never chase', 'bro is HIM', 'protein?', 'who hurt u lol', 'she lost a king', 'grindset', 'link in bio?'];
+// ===================== MEMORIES: the enemies, drawn as memories of crushes =====================
+// Every bad guy is somebody he once liked, replayed as a faded, flickering memory: a kid with a
+// hairstyle you'd recognise anywhere and cheeks that still blush, an unsent love letter flapping
+// like a moth, a phone that only ever says "Seen", the letterman-jacket guy she chose instead.
+// They come apart in photo scraps.
+const MEM_PAL = [   // per world: clothes, shading, glow
+  { shirt: ['#f7a8c4', '#9fd3f2', '#ffe08a', '#b7e4a8', '#d7b8f5'], tint: '255,200,220' },
+  { shirt: ['#b9a8ff', '#8fd8ff', '#e3c4ff', '#a0f0e8', '#ffc4e8'], tint: '190,180,255' },
+  { shirt: ['#e9c58a', '#d7a06a', '#f0d9a8', '#c99a6a', '#e8b0a0'], tint: '255,215,160' },
+  { shirt: ['#cfe6ff', '#e8f4ff', '#a8c8f0', '#d8d0ff', '#bfe8f0'], tint: '210,235,255' },
+  { shirt: ['#ff8a8a', '#ffb07a', '#e86a8a', '#ffd0a0', '#c86a9a'], tint: '255,120,110' },
+];
+const MEM_HAIR = ['#3a2416', '#1a1210', '#d8b45a', '#a8461e', '#6a4a2a', '#2a2a3a'];
+const MEM_SKIN = ['#f2c8a0', '#d9a070', '#a86e48', '#e8b890', '#7a4e32'];
+
+function memLook(e) {
+  if (e.look === undefined) {
+    let h = 2166136261;
+    const s = e.uid || String(Math.random());
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    e.look = h >>> 0;
+  }
+  return e.look;
+}
+// A ghostly flicker: mostly steady, now and then a jolt sideways with a split colour echo.
+function memFlicker(e) {
+  const k = Math.sin(e.t * 1.7 + (e.look % 97)) * Math.sin(e.t * 3.1 + (e.look % 13));
+  return k > 0.93 ? (Math.sin(e.t * 50) > 0 ? 1 : -1) : 0;
+}
+
+// A kid, feet at (cx, by), about 12 px tall. o: { face, look, t, pose: 'walk'|'air'|'arms'|'cross', shirt, flash, h }
+function drawKid(g, cx, by, o) {
+  cx = Math.round(cx); by = Math.round(by);
+  const L = o.look, f = o.face >= 0 ? 1 : -1, hairStyle = L % 6, hair = MEM_HAIR[(L >> 3) % MEM_HAIR.length], skin = MEM_SKIN[(L >> 6) % MEM_SKIN.length];
+  const shirt = o.flash ? '#ffffff' : o.shirt, dress = (L >> 9) % 3 === 0, step = Math.floor(o.t * 8) % 2;
+  const P = (dx, dy, w, h, c) => rect(g, cx + (f > 0 ? dx : -dx - w + 1), by + dy, w, h, c);
+  // legs
+  if (o.pose === 'air') { P(-2, -3, 1, 2, '#4a4058'); P(1, -2, 1, 2, '#4a4058'); }
+  else { P(-2, -2 - (step && o.pose === 'walk' ? 1 : 0), 1, 2, '#4a4058'); P(1, -2 - (!step && o.pose === 'walk' ? 1 : 0), 1, 2, '#4a4058'); }
+  // body: shirt, or a little dress
+  P(-3, -7, 6, 5, shirt);
+  if (dress) P(-4, -4, 8, 2, shirt);
+  P(-3, -7, 6, 1, 'rgba(255,255,255,0.35)');
+  // arms
+  if (o.pose === 'arms' || o.pose === 'air') { P(-4, -10, 1, 3, skin); P(3, -10, 1, 3, skin); }
+  else if (o.pose === 'cross') { P(-2, -6, 4, 1, skin); P(-3, -5, 6, 1, shirt); }
+  else { P(-4, -6, 1, 3, skin); P(3, -6 + (step ? 1 : 0), 1, 3, skin); }
+  // head
+  P(-2, -12, 5, 5, skin);
+  // hair
+  if (hairStyle === 0) { P(-2, -13, 5, 2, hair); P(-3, -12, 1, 3, hair); P(-4, -11, 1, 4, hair); }                    // ponytail behind
+  else if (hairStyle === 1) { P(-3, -13, 7, 2, hair); P(-3, -11, 1, 4, hair); P(3, -11, 1, 4, hair); }               // bob
+  else if (hairStyle === 2) { P(-2, -13, 5, 1, hair); P(-4, -11, 2, 2, hair); P(3, -11, 2, 2, hair); }               // pigtails
+  else if (hairStyle === 3) { for (let i = -3; i <= 3; i++) P(i, -13 - ((i + 3) % 2), 1, 2, hair); P(-3, -11, 1, 2, hair); }   // curls
+  else if (hairStyle === 4) { P(-2, -13, 5, 1, hair); P(1, -12, 2, 1, hair); P(-3, -12, 1, 2, hair); }               // side part
+  else { P(-2, -13, 5, 1, hair); P(-1, -15, 3, 2, hair); P(-3, -12, 1, 2, hair); }                                     // bun
+  // face: eyes looking ahead, and the blush
+  P(0, -10, 1, 1, '#2a1a20'); P(2, -10, 1, 1, '#2a1a20');
+  P(-1, -9, 1, 1, '#ff8aa8'); P(3, -9, 1, 1, '#ff8aa8');
+}
+
+function drawMemoryKid(g, e, pose, extra) {
+  const L = memLook(e), pal = MEM_PAL[G.world] || MEM_PAL[0], j = memFlicker(e);
+  const cx = e.x + e.w / 2 + j, by = e.y + e.h, face = Math.sign(e.vx) || e.face || -1;
+  const o = { face, look: L, t: e.t, pose, shirt: pal.shirt[(L >> 12) % pal.shirt.length], flash: e.flash > 0 };
+  const a0 = g.globalAlpha;
+  if (j) { g.globalAlpha = a0 * 0.35; drawKid(g, cx - j * 2, by, Object.assign({}, o, { shirt: '#7ff0ff' })); }
+  g.globalAlpha = a0 * (j ? 0.55 : 0.88);
+  drawKid(g, cx, by, o);
+  g.globalAlpha = a0;
+  if (extra) extra(cx, by, face);
+}
+
+// enemy drawing, called from drawEnt
+function drawMemory(g, e) {
+  switch (e.type) {
+    case 'walker':
+      drawMemoryKid(g, e, 'walk', (cx, by) => {
+        // a little heart over their head, floating up now and then
+        const k = (e.t * 0.6 + (e.look % 10) / 10) % 1;
+        if (k < 0.45) { g.globalAlpha = 0.8 * (1 - k / 0.45); heartIcon(g, cx, by - 17 - k * 10, 2.2, '#ff7aa0'); g.globalAlpha = 1; }
+      });
+      return true;
+    case 'hopper':
+      drawMemoryKid(g, e, e.onGround ? 'walk' : 'air', (cx, by) => {
+        // giggling: little notes when airborne
+        if (!e.onGround) for (let i = 0; i < 2; i++) { const nx = Math.round(cx + (i ? 6 : -7)), ny = Math.round(by - 16 - i * 3 + Math.sin(e.t * 10 + i) * 1); rect(g, nx, ny, 1, 3, '#ffe6f0'); rect(g, nx - 1, ny + 2, 2, 1, '#ffe6f0'); }
+      });
+      return true;
+    case 'spiky':
+      // The Rejection: arms crossed, wearing a crown of thorny roses. Don't jump on this one.
+      drawMemoryKid(g, e, 'cross', (cx, by) => {
+        const top = Math.round(by - 14);
+        for (let i = -1; i <= 1; i++) {
+          const rx = Math.round(cx + i * 4);
+          g.fillStyle = '#2e5a2a'; g.beginPath(); g.moveTo(rx - 1, top); g.lineTo(rx, top - 5); g.lineTo(rx + 1, top); g.fill();
+          rect(g, rx - 1, top - 2, 3, 2, i ? '#c8203a' : '#e83a5a');
+        }
+        rect(g, Math.round(cx - 6), top, 13, 1, '#2e5a2a');
+      });
+      return true;
+    case 'moth': {
+      // An unsent love letter, flapping its envelope flaps like wings.
+      const x = Math.round(e.x), y = Math.round(e.y + Math.sin(e.t * 6) * 1), flap = Math.sin(e.t * 18), j = memFlicker(e);
+      const paper = e.flash > 0 ? '#ffffff' : G.world === 1 ? '#efe6ff' : '#fff4e0';
+      g.globalAlpha = j ? 0.55 : 0.95;
+      g.fillStyle = paper; g.beginPath();
+      g.moveTo(x + 6, y + 3); g.lineTo(x - 2, y + 3 - flap * 6); g.lineTo(x + 1, y + 7); g.closePath();
+      g.moveTo(x + 6, y + 3); g.lineTo(x + 14, y + 3 - flap * 6); g.lineTo(x + 11, y + 7); g.closePath(); g.fill();
+      rect(g, x + 1, y + 3, 10, 7, paper); rect(g, x + 1, y + 9, 10, 1, '#d8c8b0');
+      g.strokeStyle = '#d0b8a0'; g.lineWidth = 1; g.beginPath(); g.moveTo(x + 1.5, y + 3.5); g.lineTo(x + 6, y + 7); g.lineTo(x + 10.5, y + 3.5); g.stroke();
+      heartIcon(g, x + 6, y + 6.5, 1.8, '#e0304e');
+      g.globalAlpha = 1;
+      return true;
+    }
+    case 'turret': {
+      // Read receipts: an old phone on a little stand. It types... then fires "Seen".
+      const x = Math.round(e.x), y = Math.round(e.y), j = memFlicker(e);
+      g.globalAlpha = j ? 0.6 : 1;
+      rect(g, x + 5, y + 12, 4, 2, '#4a4a52'); rect(g, x + 3, y + 13, 8, 1, '#4a4a52');
+      rect(g, x + 3, y, 8, 13, e.flash > 0 ? '#ffffff' : '#2a2c34'); rect(g, x + 4, y + 2, 6, 8, e.fire > 0 ? '#ffffff' : '#8fd0ff');
+      rect(g, x + 6, y + 11, 2, 1, '#6a6c74');
+      if (e.fire > 0) { rect(g, x + 5, y + 4, 1, 2, '#1a1a2a'); rect(g, x + 8, y + 4, 1, 2, '#1a1a2a'); rect(g, x + 5, y + 7, 4, 1, '#1a1a2a'); }
+      else for (let i = 0; i < 3; i++) if (Math.floor(e.t * 4) % 4 > i) rect(g, x + 5 + i * 2, y + 6, 1, 1, '#1a3a5a');
+      g.globalAlpha = 1;
+      return true;
+    }
+    case 'charger': {
+      // The guy she chose: letterman jacket, big shoulders, head down when he charges.
+      const L = memLook(e), x = Math.round(e.x + (e.st === 'wind' ? Math.random() * 2 - 1 : 0)), by = Math.round(e.y + e.h), f = e.face >= 0 ? 1 : -1;
+      const charge = e.st === 'charge', step = Math.floor(e.t * (charge ? 16 : 8)) % 2, j = memFlicker(e);
+      const cx = x + 9 + j, P = (dx, dy, w, h, c) => rect(g, cx + (f > 0 ? dx : -dx - w + 1), by + dy, w, h, c);
+      const jacket = e.flash > 0 ? '#ffffff' : ['#c02030', '#2050a0', '#207040'][L % 3], skin = MEM_SKIN[(L >> 4) % MEM_SKIN.length];
+      g.globalAlpha = j ? 0.55 : 0.92;
+      P(-4, -3 + (step ? -1 : 0), 2, 3, '#2a2a40'); P(1, -3 + (step ? 0 : -1), 2, 3, '#2a2a40');
+      P(-6, -10, 11, 7, jacket); P(-7, -9, 2, 5, '#f4ead8'); P(4, -9, 2, 5, '#f4ead8');
+      P(-1, -8, 3, 3, '#f4ead8'); P(0, -7, 1, 1, jacket);
+      const hy = charge ? -11 : -14, hx = charge ? 3 : 0;
+      P(-2 + hx, hy, 6, 5, skin); P(-2 + hx, hy - 1, 6, 2, MEM_HAIR[(L >> 7) % MEM_HAIR.length]);
+      P(2 + hx, hy + 2, 1, 1, '#1a1010'); P(1 + hx, hy + 4, 3, 1, '#a05040');
+      if (e.st === 'stun') for (let i = 0; i < 3; i++) rect(g, Math.round(cx + Math.cos(e.t * 6 + i * 2) * 7), Math.round(by - 17 + Math.sin(e.t * 6 + i * 2) * 2), 1, 1, '#fff6b0');
+      g.globalAlpha = 1;
+      return true;
+    }
+  }
+  return false;
+}
+
+// The troopers: crush after crush charging in, faded like old photos. Shooters hold up a phone.
+function drawMemoryRunner(g, e) {
+  const f = Math.sign(e.vx) || -1;
+  drawMemoryKid(g, e, 'walk', (cx, by) => {
+    if (!e.shooter) return;
+    const px = Math.round(cx + f * 4), py = Math.round(by - 9);
+    rect(g, f > 0 ? px : px - 2, py, 3, 4, '#2a2c34');
+    rect(g, f > 0 ? px : px - 2, py + 1, 3, 2, e.aimT > 0 ? '#ffffff' : '#8fd0ff');
+  });
+}
+
+// What they shoot: texts that say too much, and "Seen" bubbles.
+function drawMemoryShot(g, p) {
+  const x = Math.round(p.x), y = Math.round(p.y);
+  if (p.kind === 'bullet') {
+    g.globalCompositeOperation = 'lighter'; warmGlow(g, x, y, 7, 0.45, '255,90,140'); g.globalCompositeOperation = 'source-over';
+    heartIcon(g, x, y, 2.6, '#ff5a8a');
+    rect(g, x - 1, y - 1, 1, 1, '#ffd0e0');
+    return true;
+  }
+  if (p.kind === 'orb' && p.seen) {
+    rect(g, x - 5, y - 3, 11, 7, '#eef6ff'); rect(g, x - 4, y - 4, 9, 1, '#eef6ff'); rect(g, x - 4, y + 4, 9, 1, '#eef6ff');
+    rect(g, x - 4 - (p.vx > 0 ? -7 : 0), y + 4, 2, 2, '#eef6ff');
+    rect(g, x - 3, y - 1, 1, 2, '#24508a'); rect(g, x - 1, y - 1, 1, 2, '#24508a'); rect(g, x + 2, y - 1, 1, 1, '#24508a'); rect(g, x + 3, y, 1, 1, '#24508a'); rect(g, x + 2, y + 1, 1, 1, '#24508a');
+    return true;
+  }
+  return false;
+}
+
+// Photo scraps and a couple of hearts when a memory is destroyed.
+function memoryScraps(e) {
+  const cx = e.x + (e.w || 10) / 2, cy = e.y + (e.h || 10) / 2, tint = (MEM_PAL[G.world] || MEM_PAL[0]).shirt;
+  for (let i = 0; i < 9; i++) G.parts.push(part(cx, cy, (Math.random() - 0.5) * 120, -40 - Math.random() * 90, 0.9 + Math.random() * 0.5, i % 3 === 0 ? tint[i % tint.length] : '#f4ecd8', 2, 260));
+  for (let i = 0; i < 3; i++) G.parts.push(part(cx, cy - 4, (Math.random() - 0.5) * 50, -50 - Math.random() * 40, 0.8, '#ff6a90', 1, 60, true));
+}
+// ===================== WEATHER: your real local weather and time of day =====================
+// Rough location from your internet address (get.geojs.io, no permission prompt), current conditions
+// from Open-Meteo (the same feed the bellweather norns script uses), and your own clock for the sun.
+// Test any state with URL parameters: ?weather=rain|drizzle|storm|snow|fog|cloudy|clear&hour=21.5
+const WX = {
+  live: false, place: '', code: 0, temp: 60, hum: 50, wind: 3, prob: 0, cloud: 0.2,
+  rain: 0, snow: 0, fog: 0, storm: 0, sunrise: 6.5, sunset: 18.5, hourOverride: null, forced: false,
+};
+const WXV = { day: 0.5, twi: 0, cloud: 0, rain: 0, snow: 0, fog: 0, storm: 0 };   // smoothed, what's drawn
+const WXP = { drops: [], flakes: [], lastCam: 0, bolt: null, flash: 0, nextBolt: 8, thunder: [] };
+const WX_WORDS = { 0: 'clear', 1: 'mostly clear', 2: 'partly cloudy', 3: 'overcast', 45: 'fog', 48: 'freezing fog', 51: 'light drizzle', 53: 'drizzle', 55: 'heavy drizzle', 56: 'freezing drizzle', 57: 'freezing drizzle', 61: 'light rain', 63: 'rain', 65: 'heavy rain', 66: 'freezing rain', 67: 'freezing rain', 71: 'light snow', 73: 'snow', 75: 'heavy snow', 77: 'snow grains', 80: 'rain showers', 81: 'rain showers', 82: 'violent showers', 85: 'snow showers', 86: 'heavy snow showers', 95: 'thunderstorm', 96: 'thunderstorm, hail', 99: 'thunderstorm, hail' };
+const WX_USE_F = /^en-(US|LR|MM)|^en$/.test(navigator.language || 'en-US');
+
+function wxEnabled() { return !SAVE.wxOff; }
+function wxApplyCode() {
+  const c = WX.code;
+  let rain = 0, snow = 0, fog = 0, storm = 0;
+  if (c === 45 || c === 48) fog = 1;
+  if (c >= 51 && c <= 57) rain = c === 51 ? 0.3 : c === 53 ? 0.4 : 0.5;
+  if (c >= 61 && c <= 67) rain = { 61: 0.5, 63: 0.75, 65: 1, 66: 0.6, 67: 0.85 }[c];
+  if (c >= 71 && c <= 77) snow = { 71: 0.45, 73: 0.7, 75: 1, 77: 0.4 }[c];
+  if (c >= 80 && c <= 82) rain = [0.55, 0.8, 1][c - 80];
+  if (c === 85 || c === 86) snow = c === 85 ? 0.6 : 1;
+  if (c >= 95) { storm = 1; rain = Math.max(rain, 0.9); }
+  if (rain && WX.temp <= 30 && c < 95) { snow = rain; rain = 0; }
+  Object.assign(WX, { rain, snow, fog, storm });
+  if (c >= 3 && WX.cloud < 0.85) WX.cloud = 0.85;
+}
+function wxForce(kind) {
+  const codes = { clear: 0, cloudy: 3, overcast: 3, fog: 45, drizzle: 53, rain: 63, heavy: 65, storm: 95, snow: 73, blizzard: 75 };
+  if (!(kind in codes)) return false;
+  WX.code = codes[kind]; WX.cloud = kind === 'clear' ? 0.05 : 0.9; WX.prob = kind === 'clear' || kind === 'cloudy' || kind === 'fog' ? 5 : 90;
+  WX.temp = kind === 'snow' || kind === 'blizzard' ? 26 : 58; WX.hum = kind === 'clear' ? 40 : 90; WX.wind = kind === 'storm' ? 28 : kind === 'blizzard' ? 32 : 8;
+  WX.place = 'test weather'; WX.live = true; WX.forced = true;
+  wxApplyCode();
+  return true;
+}
+function wxReadCache(key, maxAge) {
+  try { const c = JSON.parse(localStorage.getItem(key)); if (c && Date.now() - c.t < maxAge) return c.v; } catch (_) { }
+  return null;
+}
+function wxWriteCache(key, v) { try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), v })); } catch (_) { } }
+
+async function wxFetch() {
+  if (WX.forced || !wxEnabled()) return;
+  try {
+    let geo = wxReadCache('cc.geo.v1', 24 * 3600e3);
+    if (!geo) {
+      const r = await fetch('https://get.geojs.io/v1/ip/geo.json');
+      const j = await r.json();
+      geo = { lat: (+j.latitude).toFixed(3), lon: (+j.longitude).toFixed(3), city: j.city || j.region || '' };
+      if (!isFinite(+geo.lat)) throw new Error('no location');
+      wxWriteCache('cc.geo.v1', geo);
+    }
+    let w = wxReadCache('cc.wx.v1', 10 * 60e3);
+    if (!w) {
+      const u = `https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}` +
+        '&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,cloud_cover,wind_speed_10m' +
+        '&hourly=precipitation_probability&daily=sunrise,sunset&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=1';
+      const j = await (await fetch(u)).json();
+      const cur = j.current, hi = j.hourly.time.indexOf(cur.time.slice(0, 13) + ':00');
+      const hrs = (s) => { const m = /T(\d\d):(\d\d)/.exec(s || ''); return m ? +m[1] + m[2] / 60 : null; };
+      w = {
+        code: cur.weather_code | 0, temp: cur.temperature_2m, hum: cur.relative_humidity_2m, wind: cur.wind_speed_10m,
+        cloud: (cur.cloud_cover || 0) / 100, precip: cur.precipitation || 0, prob: hi >= 0 ? j.hourly.precipitation_probability[hi] || 0 : 0,
+        sunrise: hrs(j.daily.sunrise[0]), sunset: hrs(j.daily.sunset[0]),
+      };
+      wxWriteCache('cc.wx.v1', w);
+    }
+    Object.assign(WX, { code: w.code, temp: w.temp, hum: w.hum, wind: w.wind, cloud: w.cloud, prob: w.prob, place: geo.city, live: true });
+    if (w.sunrise != null) WX.sunrise = w.sunrise;
+    if (w.sunset != null) WX.sunset = w.sunset;
+    wxApplyCode();
+    if (w.precip > 0 && !WX.rain && !WX.snow) { if (WX.temp <= 32) WX.snow = 0.4; else WX.rain = 0.35; }
+  } catch (e) { WX.live = false; }
+}
+function wxInit() {
+  const q = new URLSearchParams(location.search);
+  if (q.has('hour')) WX.hourOverride = ((+q.get('hour')) % 24 + 24) % 24;
+  if (q.has('weather') && wxForce(q.get('weather'))) return;
+  wxFetch();
+  setInterval(wxFetch, 10 * 60e3);
+}
+
+// ---------- sun and moon ----------
+function wxHour() { if (WX.hourOverride != null) return WX.hourOverride; const d = new Date(); return d.getHours() + d.getMinutes() / 60; }
+// 0 at night, 1 in full daylight, ramping over ~1.5 hours around sunrise and sunset
+function wxDaylight() {
+  const h = wxHour(), ramp = (x) => clamp((x + 0.6) / 1.2, 0, 1);
+  return Math.min(ramp(h - WX.sunrise), ramp(WX.sunset - h));
+}
+function wxTwilight() {
+  const h = wxHour();
+  return Math.max(0, 1 - Math.min(Math.abs(h - WX.sunrise), Math.abs(h - WX.sunset)) / 1.1);
+}
+// bellweather's own curves: daytime peaks ~1pm, moon is 0 (new) to 1 (full)
+function wxDaytimeFactor() { return (Math.cos((wxHour() - 13) / 24 * 2 * Math.PI) + 1) / 2; }
+function wxMoon() { const days = (Date.now() - Date.UTC(2000, 0, 6, 18, 14)) / 864e5, ph = (days % 29.530588853) / 29.530588853; return (1 - Math.cos(ph * 2 * Math.PI)) / 2; }
+
+function wxLabel(short) {
+  if (!WX.live) return '';
+  const t = WX_USE_F ? `${Math.round(WX.temp)}°F` : `${Math.round((WX.temp - 32) * 5 / 9)}°C`;
+  const word = WX_WORDS[WX.code] || 'clear';
+  if (short) return `${t} ${word}`;
+  return `${WX.place ? WX.place + ': ' : ''}${word}, ${t}`;
+}
+
+// ---------- per-frame state ----------
+function wxTick(dt) {
+  const on = wxEnabled() && (WX.live || WX.hourOverride != null);
+  const k = Math.min(1, dt * 0.8);
+  const tgt = on ? { day: wxDaylight(), twi: wxTwilight(), cloud: WX.cloud * (WX.live ? 1 : 0), rain: WX.rain, snow: WX.snow, fog: WX.fog, storm: WX.storm }
+    : { day: -1, twi: 0, cloud: 0, rain: 0, snow: 0, fog: 0, storm: 0 };
+  const snap = !WXV.ready && on; if (on) WXV.ready = true;
+  for (const key in tgt) WXV[key] += (tgt[key] - WXV[key]) * (snap || (key === 'day' && Math.abs(tgt[key] - WXV[key]) > 0.9) ? 1 : k);
+  WXV.off = !on;
+  // lightning
+  if (WXV.storm > 0.5) {
+    WXP.nextBolt -= dt;
+    if (WXP.nextBolt <= 0) {
+      WXP.nextBolt = 6 + Math.random() * 10; WXP.flash = 0.9;
+      const x0 = 40 + Math.random() * (VW - 80), pts = [[x0, 0]];
+      for (let y = 0; y < 150;) { y += 10 + Math.random() * 16; pts.push([pts[pts.length - 1][0] + (Math.random() - 0.5) * 26, y]); }
+      WXP.bolt = { pts, t: 0.25 };
+      WXP.thunder.push(0.4 + Math.random() * 1.4);
+    }
+  }
+  if (WXP.flash > 0) WXP.flash -= dt * 2.4;
+  if (WXP.bolt && (WXP.bolt.t -= dt) <= 0) WXP.bolt = null;
+  for (let i = WXP.thunder.length - 1; i >= 0; i--) if ((WXP.thunder[i] -= dt) <= 0) { WXP.thunder.splice(i, 1); wxThunder(); }
+}
+function wxThunder() {
+  const c = AU.ctx; if (!c || !AU.sfxOn || !AU.noiseBuf) return;
+  const t = c.currentTime, src = c.createBufferSource(), f = c.createBiquadFilter(), gn = c.createGain();
+  src.buffer = AU.noiseBuf; src.loop = true; f.type = 'lowpass'; f.frequency.value = 160 + Math.random() * 120;
+  gn.gain.setValueAtTime(0, t); gn.gain.linearRampToValueAtTime(0.9, t + 0.08); gn.gain.exponentialRampToValueAtTime(0.001, t + 2.6);
+  src.connect(f); f.connect(gn); gn.connect(AU.sfx); src.start(t); src.stop(t + 2.7);
+}
+// How much darker (+) or lighter (-) the scene's shadow layer should be.
+function wxDarkBoost() {
+  if (WXV.off || WXV.day < 0) return 0;
+  const cave = G.world === 1 ? 0.45 : 1;
+  return (-0.3 * WXV.day * (1 - WXV.cloud * 0.45) + 0.08 * (1 - WXV.day) + WXV.storm * 0.08 + WXV.rain * 0.04) * cave;
+}
+
+// ---------- drawing ----------
+// Sky colour for the time of day, drawn over a world's own sky.
+function wxSkyTint(g, w) {
+  if (WXV.off || WXV.day < 0) return;
+  const d = WXV.day, tw = WXV.twi, cl = WXV.cloud, cave = w === 1 ? 0.45 : 1;
+  if (d > 0.01) {
+    const gr = g.createLinearGradient(0, 0, 0, VH);
+    gr.addColorStop(0, '#5aa8ec'); gr.addColorStop(0.7, '#a9d6f5'); gr.addColorStop(1, '#d8eefa');
+    g.globalAlpha = d * 0.62 * (1 - cl * 0.55) * cave; g.fillStyle = gr; g.fillRect(0, 0, VW, VH);
+    if (w === 0) { g.globalAlpha = d * 0.8; circ(g, 380, 52, 21, '#7fbcee'); }   // the grove's painted moon sets by day
+    // the sun, crossing the sky from sunrise to sunset
+    const p = clamp((wxHour() - WX.sunrise) / Math.max(1, WX.sunset - WX.sunrise), 0, 1), sx = 40 + p * (VW - 80), sy = 150 - Math.sin(p * Math.PI) * 120;
+    g.globalAlpha = d * (1 - cl * 0.85) * cave;
+    const sg = g.createRadialGradient(sx, sy, 0, sx, sy, 46); sg.addColorStop(0, 'rgba(255,250,220,0.9)'); sg.addColorStop(0.25, 'rgba(255,240,190,0.5)'); sg.addColorStop(1, 'rgba(255,230,160,0)');
+    g.fillStyle = sg; g.fillRect(sx - 46, sy - 46, 92, 92);
+  }
+  if (tw > 0.01) {
+    const gr = g.createLinearGradient(0, 40, 0, VH);
+    gr.addColorStop(0, 'rgba(255,110,150,0.25)'); gr.addColorStop(0.5, 'rgba(255,120,80,0.8)'); gr.addColorStop(1, 'rgba(255,186,96,0.95)');
+    g.globalAlpha = tw * 0.7 * (1 - cl * 0.5) * cave; g.fillStyle = gr; g.fillRect(0, 0, VW, VH);
+  }
+  if (d < 0.99) { g.globalAlpha = (1 - d) * 0.28 * cave; g.fillStyle = '#0a0c26'; g.fillRect(0, 0, VW, VH); }
+  if (cl > 0.05) { g.globalAlpha = cl * 0.42 * cave; g.fillStyle = d > 0.5 ? '#8f98a3' : '#20232b'; g.fillRect(0, 0, VW, VH); }
+  g.globalAlpha = 1;
+}
+// Rain, snow, fog and lightning, in screen space over everything but the HUD.
+function wxDrawFront(g, camDX, fp) {
+  if (WXV.off) return;
+  const cave = G.world === 1, wind = clamp(WX.wind / 30, 0, 1) * (WX.wind > 0 ? 1 : 0);
+  // rain (drips from the ceiling in the caves)
+  const nRain = Math.round(WXV.rain * (cave ? 26 : 170));
+  while (WXP.drops.length < nRain) WXP.drops.push({ x: Math.random() * VW, y: Math.random() * VH, v: 0.8 + Math.random() * 0.5 });
+  if (WXP.drops.length > nRain) WXP.drops.length = nRain;
+  if (nRain) {
+    g.strokeStyle = cave ? 'rgba(150,220,255,0.75)' : 'rgba(175,205,255,0.5)'; g.lineWidth = 1; g.beginPath();
+    const vx = cave ? 0 : -60 - wind * 160, vy = cave ? 210 : 430;
+    for (const p of WXP.drops) {
+      p.x += (vx * p.v / 60) - camDX; p.y += vy * p.v / 60;
+      if (p.y > VH) { p.y = cave ? Math.random() * 40 : -8; p.x = Math.random() * (VW + 60); }
+      if (p.x < -10) p.x += VW + 20; if (p.x > VW + 10) p.x -= VW + 20;
+      const len = cave ? 2 : 5 + p.v * 3;
+      g.moveTo(Math.round(p.x) + 0.5, Math.round(p.y)); g.lineTo(Math.round(p.x + vx / vy * len) + 0.5, Math.round(p.y + len));
+    }
+    g.stroke();
+  }
+  // snow (ash in the Heartbreak Core)
+  const nSnow = Math.round(WXV.snow * (cave ? 0 : 130));
+  while (WXP.flakes.length < nSnow) WXP.flakes.push({ x: Math.random() * VW, y: Math.random() * VH, v: 0.5 + Math.random() * 0.8, ph: Math.random() * 6, s: Math.random() < 0.3 ? 2 : 1 });
+  if (WXP.flakes.length > nSnow) WXP.flakes.length = nSnow;
+  const ash = G.world === 4;
+  for (const p of WXP.flakes) {
+    p.ph += 0.03; p.x += (Math.sin(p.ph) * 0.4 - wind * 1.2 * p.v) - camDX; p.y += 0.55 * p.v;
+    if (p.y > VH) { p.y = -4; p.x = Math.random() * VW; }
+    if (p.x < -6) p.x += VW + 12; if (p.x > VW + 6) p.x -= VW + 12;
+    rect(g, Math.round(p.x), Math.round(p.y), p.s, p.s, ash ? '#9a8e88' : '#f4f8ff');
+  }
+  // fog: slow drifting bands
+  if (WXV.fog > 0.02) {
+    for (let i = 0; i < 3; i++) {
+      const y = 120 + i * 45 + Math.sin(G.t * 0.2 + i) * 10, gr = g.createLinearGradient(0, y - 40, 0, y + 40);
+      gr.addColorStop(0, 'rgba(210,214,220,0)'); gr.addColorStop(0.5, `rgba(210,214,220,${0.3 * WXV.fog})`); gr.addColorStop(1, 'rgba(210,214,220,0)');
+      g.fillStyle = gr; g.fillRect(0, y - 40, VW, 80);
+    }
+    g.fillStyle = `rgba(200,205,212,${0.14 * WXV.fog})`; g.fillRect(0, 0, VW, VH);
+  }
+  // lightning
+  if (WXP.bolt && !cave) {
+    g.strokeStyle = 'rgba(240,240,255,0.95)'; g.lineWidth = 2; g.beginPath();
+    WXP.bolt.pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke();
+  }
+  if (WXP.flash > 0) { g.fillStyle = `rgba(225,230,255,${Math.min(0.55, WXP.flash * 0.6) * (cave ? 0.3 : 1)})`; g.fillRect(0, 0, VW, VH); }
+}
+// ===================== BELL: first-person music, ported from bellweather =====================
+// A WebAudio port of Engine_WeatherBell and bellweather.lua (samuelling/bellweather, a norns script):
+// - drone: two sub octaves and a root (mostly sine with a little saw), two clean sine octaves and a
+//   bell partial (x2.76) that open up by day and fold away at night, each swelling on its own slow,
+//   unsynchronised cycle, through a resonant low-pass whose sweep rate follows the wind
+// - pink-noise rain texture, wind (band-passed noise on a drifting random walk, stochastic gusts with
+//   a thin whistle, through a comb delay), and rare moon-phase throbs in the subs
+// - Karplus-Strong plucks (two strings a hair apart, piano-like two-stage envelope): snappy for rain,
+//   soft and long for snow, density and loudness following the chance of rain
+// - the melody walks like bellweather's: mostly steps, leap recovery, a pull back to the centre
+// - a six-partial deep bell (hum, prime, tierce, quint, nominal, clang) when you enter a 3D zone
+// - drone drift: the root wanders by scale steps or octaves and glides there (humidity sets the glide)
+// Out through reverb + 375 ms delay, like WeatherBellOut. Time constants are sped up (TS) because a
+// first-person stretch lasts a minute, not an evening.
+const BELL = { nodes: null, on: false, deg: 0, last: 0, drift: 0, nextNote: 0.6, nextDrift: 8, nextBell: 0, gust: 0, windWalk: 0, songWas: '', ks: new Map() };
+const BELL_TS = 5;
+const BELL_ROOT = 55;   // A1, bellweather's default root
+const BELL_SCALES = [[0, 2, 4, 7, 9], [0, 3, 5, 7, 10], [0, 2, 3, 5, 7, 9, 10], [0, 2, 3, 5, 7, 8, 10], [0, 2, 4, 6, 8, 10]];   // per world: major pent, minor pent, dorian, natural minor, whole tone
+const BELL_STEPS = [0.5, 0.67, 0.75, 1.0, 1.0, 1.0, 1.33, 1.5, 2.0];
+const linlin = (v, a, b, c, d) => c + (clamp(v, Math.min(a, b), Math.max(a, b)) - a) / (b - a) * (d - c);
+
+function bellWeather() {
+  const live = WX.live && !SAVE.wxOff;
+  const temp = live ? WX.temp : 60, wind = live ? WX.wind : 3, hum = live ? WX.hum : 50;
+  const wet = Math.max(WX.rain, WX.snow);
+  // like bellweather, the chance of rain sets the melody; a light drizzle of notes even on a dry day
+  const precip = live ? Math.max(0.3, WX.prob / 100, wet ? 0.55 + wet * 0.45 : 0) : 0.35;
+  return { temp, wind, hum, precip, snow: live && (WX.snow > 0 || temp <= 32), day: SAVE.wxOff ? 0.5 : wxDaytimeFactor(), moon: wxMoon() };
+}
+
+function bellNoiseBuf(c, pink) {
+  const n = c.sampleRate * 4, b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.random() * 2 - 1;
+    if (!pink) { d[i] = w; continue; }
+    b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.969 * b2 + w * 0.153852;
+    b3 = 0.8665 * b3 + w * 0.3104856; b4 = 0.55 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.016898;
+    d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11; b6 = w * 0.115926;
+  }
+  return b;
+}
+function bellImpulse(c, secs) {
+  const n = Math.floor(c.sampleRate * secs), b = c.createBuffer(2, n, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.6); }
+  return b;
+}
+
+function bellBuild() {
+  const c = AU.ctx, N = {};
+  N.out = c.createGain(); N.out.gain.value = 0; N.out.connect(AU.music);
+  // output stage: dry + (reverb, 375 ms delay)
+  N.fx = c.createGain();
+  const dry = c.createGain(); dry.gain.value = 0.62; N.fx.connect(dry); dry.connect(N.out);
+  const verb = c.createConvolver(); verb.buffer = bellImpulse(c, 3.4);
+  const vg = c.createGain(); vg.gain.value = 0.36; N.fx.connect(verb); verb.connect(vg); vg.connect(N.out);
+  const dl = c.createDelay(1); dl.delayTime.value = 0.375; const fb = c.createGain(); fb.gain.value = 0.36; const dg = c.createGain(); dg.gain.value = 0.22;
+  N.fx.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(dg); dg.connect(N.out);
+  // drone filter (RLPF) with its slow sweep
+  N.filt = c.createBiquadFilter(); N.filt.type = 'lowpass'; N.filt.frequency.value = 1400; N.filt.connect(N.fx);
+  N.lfo = c.createOscillator(); N.lfo.frequency.value = 0.02 * BELL_TS; N.lfoG = c.createGain(); N.lfoG.gain.value = 400; N.lfo.connect(N.lfoG); N.lfoG.connect(N.filt.frequency); N.lfo.start();
+  // drone layers: [ratio, sine share, saw share, swell rate, swell low]
+  const L = [[0.25, 0.8, 0.2, 0.009, 0.8], [0.5, 0.8, 0.2, 0.013, 0.8], [1, 0.75, 0.25, 0.017, 0.85], [2, 1, 0, 0.021, 0.75], [4, 1, 0, 0.026, 0.7], [2.76, 1, 0, 0, 1]];
+  N.layers = L.map(([ratio, sn, sw, rate, lo]) => {
+    const lvl = c.createGain(); lvl.gain.value = 0; lvl.connect(N.filt);
+    const swell = c.createGain(); swell.gain.value = (1 + lo) / 2; swell.connect(lvl);
+    const oscs = [];
+    for (const [type, share] of [['sine', sn], ['sawtooth', sw]]) {
+      if (!share) continue;
+      const o = c.createOscillator(); o.type = type; o.frequency.value = BELL_ROOT * ratio;
+      const g = c.createGain(); g.gain.value = share; o.connect(g); g.connect(swell); o.start(); oscs.push(o);
+    }
+    let lf = null;
+    if (rate) { lf = c.createOscillator(); lf.frequency.value = rate * BELL_TS; const lg = c.createGain(); lg.gain.value = (1 - lo) / 2; lf.connect(lg); lg.connect(swell.gain); lf.start(); }
+    return { ratio, lvl, swell, oscs, lf, rate };
+  });
+  // rain texture
+  const pink = bellNoiseBuf(c, true), white = bellNoiseBuf(c, false);
+  N.noise = c.createGain(); N.noise.gain.value = 0;
+  const ns = c.createBufferSource(); ns.buffer = pink; ns.loop = true; ns.connect(N.noise); N.noise.connect(N.filt); ns.start();
+  // wind: drifting band-pass body + gust whistle, through a comb delay
+  N.wind = c.createGain(); N.wind.gain.value = 0;
+  N.windBP = c.createBiquadFilter(); N.windBP.type = 'bandpass'; N.windBP.frequency.value = 400; N.windBP.Q.value = 0.77;
+  const ws = c.createBufferSource(); ws.buffer = pink; ws.loop = true; ws.loopStart = 1.7; ws.connect(N.windBP);
+  const body = c.createGain(); body.gain.value = 0.8; N.windBP.connect(body); body.connect(N.wind); ws.start(0, 1.7);
+  const wh = c.createBufferSource(); wh.buffer = white; wh.loop = true; const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500;
+  N.whistle = c.createGain(); N.whistle.gain.value = 0; wh.connect(hp); hp.connect(N.whistle); N.whistle.connect(N.wind); wh.start();
+  const comb = c.createDelay(1); comb.delayTime.value = 0.42; const cfb = c.createGain(); cfb.gain.value = 0.5; const cg = c.createGain(); cg.gain.value = 0.5;
+  N.wind.connect(comb); comb.connect(cfb); cfb.connect(comb); comb.connect(cg);
+  const wmix = c.createGain(); wmix.gain.value = 0.65; N.wind.connect(wmix); wmix.connect(N.filt); cg.connect(N.filt);
+  BELL.nodes = N;
+}
+
+// ---- voices ----
+// Karplus-Strong, rendered into a buffer: two strings (f, f*1.003) excited by a noise burst
+function bellKS(freq, snow) {
+  const key = Math.round(freq * 10) + (snow ? 's' : 'r');
+  if (BELL.ks.has(key)) return BELL.ks.get(key);
+  const c = AU.ctx, sr = c.sampleRate, decay = snow ? 2.8 : 0.5, coef = snow ? 0.22 : 0.1, strike = snow ? 0.09 : 0.002;
+  const n = Math.ceil(sr * (decay + 0.1)), buf = c.createBuffer(1, n, sr), out = buf.getChannelData(0);
+  const burst = new Float32Array(Math.ceil(sr * (strike + 0.002)));
+  for (let i = 0; i < burst.length; i++) { const t = i / sr, env = t < 0.0005 ? t / 0.0005 : Math.pow(Math.max(0, 1 - (t - 0.0005) / strike), 4); burst[i] = (Math.random() * 2 - 1) * env; }
+  for (const [f, dec, w] of [[freq, decay, 0.7], [freq * 1.003, decay * 0.92, 0.5]]) {
+    const D = sr / f, len = Math.ceil(D) + 2, line = new Float32Array(len), g = Math.pow(0.001, 1 / (dec * f));
+    let wi = 0, lp = 0;
+    for (let i = 0; i < n; i++) {
+      const rp = wi - D, i0 = Math.floor(rp), fr = rp - i0;
+      const a = line[((i0 % len) + len) % len], b = line[(((i0 + 1) % len) + len) % len];
+      lp = (1 - Math.abs(coef)) * (a + (b - a) * fr) + coef * lp;
+      const y = (i < burst.length ? burst[i] : 0) + g * lp;
+      line[wi % len] = y; wi++;
+      out[i] += y * w;
+    }
+  }
+  // piano-like envelope: quick dip as the upper partials shed, then a long body; plus a DC blocker
+  let x1 = 0, y1 = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, a = decay * 0.25;
+    const env = t < 0.001 ? t / 0.001 : t < a ? 1 - 0.45 * (1 - Math.pow(1 - (t - 0.001) / a, 3)) : 0.55 * Math.pow(Math.max(0, 1 - (t - a) / (decay * 0.75)), 3);
+    const x = out[i] * env, y = x - x1 + 0.995 * y1; x1 = x; y1 = y; out[i] = y;
+  }
+  if (BELL.ks.size > 120) BELL.ks.clear();
+  BELL.ks.set(key, buf);
+  return buf;
+}
+function bellPluck(freq, amp, snow) {
+  const c = AU.ctx, s = c.createBufferSource(), g = c.createGain(), p = c.createStereoPanner ? c.createStereoPanner() : null;
+  s.buffer = bellKS(freq, snow); g.gain.value = amp;
+  s.connect(g);
+  if (p) { p.pan.value = Math.random() * 1.2 - 0.6; g.connect(p); p.connect(BELL.nodes.fx); } else g.connect(BELL.nodes.fx);
+  s.start();
+}
+function bellStrike(freq) {
+  const c = AU.ctx, t = c.currentTime;
+  for (const [r, dur, a] of [[0.5, 8, 0.4], [1, 6, 0.5], [1.19, 4, 0.3], [1.5, 3, 0.25], [2, 2.5, 0.3], [4.05, 0.4, 0.35]]) {
+    const o = c.createOscillator(), g = c.createGain();
+    o.frequency.value = freq * r; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(a * 0.5, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+    o.connect(g); g.connect(BELL.nodes.fx); o.start(t); o.stop(t + dur + 0.05);
+  }
+}
+
+// ---- melody: bellweather's mutate_degree() ----
+function bellMutate() {
+  if (Math.random() < 0.15) { BELL.last = 0; return; }
+  const r = Math.random(), size = r < 0.65 ? 1 : r < 0.88 ? 2 : 3 + Math.floor(Math.random() * 2);
+  let dir;
+  if (Math.abs(BELL.last) >= 3 && Math.random() < 0.7) dir = BELL.last > 0 ? -1 : 1;
+  else { const toward = BELL.deg > 0 ? -1 : 1, pull = clamp(Math.abs(BELL.deg) / 14, 0, 1) * 0.6; dir = Math.random() < 0.5 + pull ? toward : -toward; }
+  BELL.deg = clamp(BELL.deg + dir * size, -14, 14); BELL.last = dir * size;
+}
+function bellFreq(deg, mult) {
+  const sc = BELL_SCALES[G.world] || BELL_SCALES[0], n = sc.length, oct = Math.floor(deg / n), idx = ((deg % n) + n) % n;
+  return BELL_ROOT * mult * Math.pow(2, (sc[idx] + oct * 12) / 12);
+}
+
+// ---- weather -> sound, every frame while on ----
+function bellApply(w) {
+  const N = BELL.nodes, c = AU.ctx, t = c.currentTime, set = (p, v, tc) => p.setTargetAtTime(v, t, tc);
+  const day = w.day, lane = Math.abs((G.P && G.P.lane) || 0);
+  const lvls = [0.35 + (1 - day) * 0.15, 0.35 + (1 - day) * 0.15, 0.35, day * 0.25, day * day * 0.15, 0.04 + day * 0.05];
+  N.layers.forEach((L, i) => { set(L.lvl.gain, lvls[i], 1.5); if (L.lf) set(L.lf.frequency, L.rate * BELL_TS * linlin(w.wind, 0, 50, 0.6, 1.7), 2); });
+  // deeper hidden lanes sound darker
+  set(N.filt.frequency, 1400 * (1 - lane * 0.16), 1.2);
+  const res = linlin(w.hum, 0, 100, 0.05, 0.3);
+  N.filt.Q.value = 20 * Math.log10(1 / (1 - res));
+  set(N.lfo.frequency, linlin(w.wind, 0, 50, 0.006, 0.05) * BELL_TS, 3);
+  set(N.noise.gain, linlin(w.precip, 0, 1, 0, 0.3) * 0.5, 2);
+  const wn = clamp(w.wind / 50, 0, 1);
+  BELL.windWalk = clamp(BELL.windWalk + (Math.random() - 0.5) * 30, -300, 300);
+  set(N.windBP.frequency, clamp(250 + wn * 900 + BELL.windWalk + BELL.gust * 2200, 120, 5000), 0.4);
+  set(N.whistle.gain, BELL.gust * 0.5, 0.2);
+  set(N.wind.gain, (0.12 + wn * 0.6) * linlin(w.wind, 0, 50, 0, 1) * 0.55, 2);
+}
+
+function bellStart() {
+  if (!AU.ctx) return;
+  if (!BELL.nodes) bellBuild();
+  BELL.on = true;
+  BELL.songWas = AU.songKey; playSong('');
+  const N = BELL.nodes, t = AU.ctx.currentTime;
+  N.out.gain.cancelScheduledValues(t); N.out.gain.setTargetAtTime(0.6, t, 0.8);
+  BELL.nextNote = 0.8; BELL.nextBell = 22;
+  bellStrike(BELL_ROOT * 2);
+}
+function bellStop() {
+  if (!BELL.on) return;
+  BELL.on = false;
+  if (BELL.nodes && AU.ctx) { const t = AU.ctx.currentTime; BELL.nodes.out.gain.cancelScheduledValues(t); BELL.nodes.out.gain.setTargetAtTime(0, t, 0.5); }
+  if (G.scene === 'play' && AU.songKey === '' && BELL.songWas) playSong(BELL.songWas);
+}
+
+function bellTick(dt) {
+  const want = G.scene === 'play' && G.mode === 'fp' && !(G.boss);
+  if (want && !BELL.on) bellStart();
+  else if (!want && BELL.on) bellStop();
+  if (!BELL.on || !BELL.nodes) return;
+  const w = bellWeather();
+  // gusts: randomly timed, each a quick rise and a slow fall
+  if (Math.random() < dt * (0.015 + clamp(w.wind / 50, 0, 1) * 0.08) * BELL_TS) BELL.gust = 1;
+  BELL.gust = Math.max(0, BELL.gust - dt / 3.5 * 2);
+  bellApply(w);
+  // moon throb: rare, slow swells in the subs
+  if (Math.random() < dt * (0.0015 + w.moon * 0.012) * BELL_TS * 3) {
+    const t = AU.ctx.currentTime;
+    for (const L of BELL.nodes.layers.slice(0, 2)) { L.lvl.gain.setTargetAtTime(0.55, t, 2); L.lvl.gain.setTargetAtTime(0.4, t + 4, 3); }
+  }
+  // melody
+  BELL.nextNote -= dt;
+  if (BELL.nextNote <= 0) {
+    const base = linlin(w.precip, 0.001, 1, 2.5, 0.4), mult = BELL_STEPS[Math.floor(Math.random() * BELL_STEPS.length)];
+    BELL.nextNote = base * mult * 0.5;
+    const density = linlin(w.precip, 0.001, 1, 0.4, 0.85);
+    if (Math.random() < density) { bellMutate(); bellPluck(bellFreq(BELL.deg, 4), 0.28 * linlin(w.precip, 0, 1, 0.5, 1) * 1.6, w.snow); }
+  }
+  // drone drift: mostly octave moves, sometimes one or two scale steps, gliding there
+  BELL.nextDrift -= dt;
+  if (BELL.nextDrift <= 0) {
+    BELL.nextDrift = Math.max(30, linlin(w.hum, 0, 100, 90, 30)) / BELL_TS * (0.7 + Math.random() * 0.6);
+    const n = (BELL_SCALES[G.world] || BELL_SCALES[0]).length;
+    const step = Math.random() < 0.5 ? (Math.random() < 0.5 ? n : -n) : (Math.random() < 0.5 ? 1 : -1) * (1 + Math.floor(Math.random() * 2));
+    BELL.drift = clamp(BELL.drift + step, -n, n);
+    const f = bellFreq(BELL.drift, 1), glide = linlin(w.hum, 0, 100, 4, 26) / BELL_TS * 2, t = AU.ctx.currentTime;
+    for (const L of BELL.nodes.layers) for (const o of L.oscs) o.frequency.setTargetAtTime(f * L.ratio, t, glide / 3);
+  }
+  BELL.nextBell -= dt;
+  if (BELL.nextBell <= 0) { BELL.nextBell = 24 + Math.random() * 16; bellStrike(bellFreq(BELL.drift, 2)); }
+}
 // ===================== NET: portals + multiplayer, via the combined page =====================
 // Active only inside the "Crush Commando x Hollow Dash" hub (../index.html), which loads this game
 // in an iframe with ?hub. The hub owns the network connection; this file reports where the player
@@ -3734,6 +4372,7 @@ function killEnemy(e, stomp) {
   burst(G, e.x + e.w / 2, e.y + e.h / 2, 12, e.type === 'runner' ? '#5a2a50' : col.b, 100, 300);
   burst(G, e.x + e.w / 2, e.y + e.h / 2, 4, '#ff5a8a', 70, 0, true);
   burst(G, e.x + e.w / 2, e.y + e.h / 2, 5, '#ffcf6a', 60, 0, true);
+  memoryScraps(e);
 }
 function startGoal(e) {
   e.planted = true; G.goalEnt = e; sfx('beep');
@@ -3787,10 +4426,10 @@ const TUT = [
 ];
 function tutorialText(w) { const t = TUT[w]; return G.lastInput === 'touch' ? t.touch : t.kb; }
 const POWERS = [
-  { name: 'Second Wind', desc: 'Double jump. When life knocks you down, you jump again, in midair.' },
-  { name: 'Smooth Move', desc: 'Dash in any direction, even straight up. Smashes cracked stone and any memory in the way.' },
-  { name: 'Nothing Stops Me', desc: 'Wall jump. Slide down walls and kick off them. Climb a single wall by kicking back and forth.' },
-  { name: 'Cool Head', desc: 'Glide. After a double jump, keep holding jump to float. Ride hot vents upward.' },
+  { name: 'Second Wind', desc: 'Double jump. When life knocks you down, you jump again. You stop remembering why it hurt.' },
+  { name: 'Smooth Move', desc: 'Dash in any direction, even up. Smashes stone and memories. You learn your first line. It works. It feels like nothing.' },
+  { name: 'Nothing Stops Me', desc: 'Wall jump. Kick off walls, climb anything. Nobody can reach you now. Nobody tries.' },
+  { name: 'Cool Head', desc: 'Glide. After a double jump, hold jump to float, and ride hot vents up. Everything looks small from up here.' },
 ];
 
 // ---------- ambient particles ----------
@@ -3868,6 +4507,7 @@ function drawBG(g, w, cam) {
   }
   const mo = -(((cam * 0.4) % 1024) + 1024) % 1024;
   g.drawImage(bg.mid, Math.round(mo), 0); g.drawImage(bg.mid, Math.round(mo) + 1024, 0);
+  wxSkyTint(g, w);
 }
 function drawGearShape(g, x, y, r, rot, c) {
   g.fillStyle = c; g.beginPath();
@@ -3909,6 +4549,7 @@ function drawPlayer(g) {
   } else drawFlame(g, fx, flameY, 0.7 + hp / MAXHP * 0.33 + (P.dashT > 0 ? 0.35 : 0), G.t, lean);
 }
 function drawProj(g, p) {
+  if (!(p.delay > 0) && drawMemoryShot(g, p)) return;
   if (p.delay > 0) {
     const a = 0.4 + Math.sin(G.t * 20) * 0.3;
     g.fillStyle = `rgba(255,220,120,${a})`; g.beginPath(); g.moveTo(p.x - 5, 18); g.lineTo(p.x + 5, 18); g.lineTo(p.x, 26); g.fill();
@@ -3975,7 +4616,7 @@ function drawPlay(g) {
   g.globalAlpha = 1;
   g.restore();
   // lighting
-  drawLighting(g, G.world, buildLights(), cam - Math.round(sx), G.darkBoost);
+  drawLighting(g, G.world, buildLights(), cam - Math.round(sx), G.darkBoost + wxDarkBoost());
   g.save(); g.translate(-cam + Math.round(sx), Math.round(sy));
   g.globalCompositeOperation = 'lighter';
   const P = G.P;
@@ -3988,6 +4629,7 @@ function drawPlay(g) {
   g.globalCompositeOperation = 'source-over';
   g.restore();
   drawAmbient(g);
+  { let cdx = cam - WXP.lastCam; WXP.lastCam = cam; if (Math.abs(cdx) > 40) cdx = 0; wxDrawFront(g, cdx, false); }
   if (G.flash > 0) { g.fillStyle = `rgba(255,240,210,${Math.min(0.8, G.flash * 2)})`; g.fillRect(0, 0, VW, VH); }
   if (G.pstate === 'dead' && G.pt < 0.5) { g.fillStyle = `rgba(0,0,0,${1 - G.pt / 0.5})`; g.fillRect(0, 0, VW, VH); }
 }
@@ -4050,6 +4692,7 @@ function drawHUD(c) {
   c.fillStyle = WCOL[wl]; c.beginPath(); c.arc(16, 35, 5, 0, 7); c.fill();
   txt(c, wl === 'N' ? '·' : wl, 16, 38, 8, '#1a0a0a', 'center');
   txt(c, WEAPONS[wl].name, 25, 38, 7, '#ffe6c4');
+  if (WX.live && !SAVE.wxOff) txt(c, wxLabel(true), 10, 53, 6, 'rgba(255,230,200,0.6)');
   const tx = G.touch ? VW - 34 : VW - 10;
   txt(c, fmtTime(G.time), tx, 21, 9, '#ffe6c4', 'right');
   if (G.escape) { const s = Math.max(0, G.escape.t); txt(c, `ESCAPE ${s.toFixed(1)}`, VW / 2, 92, 18, Math.sin(G.t * 12) > 0 ? '#ff4a3a' : '#ffe0a0', 'center', FD); }
@@ -4104,7 +4747,7 @@ function menuClick(items, x0, y0, dy, w) {
   for (let i = 0; i < items.length; i++) { const y = y0 + i * dy; if (Math.abs(G.click.x - x0) < w / 2 && G.click.y > y - dy / 2 - 2 && G.click.y < y + dy / 2 - 2) return i; }
   return -1;
 }
-function pauseItems() { return ['Resume', 'Restart stage', 'Back to map', `Music: ${SAVE.music ? 'on' : 'off'}`, `Sound: ${SAVE.sfx ? 'on' : 'off'}`]; }
+function pauseItems() { return ['Resume', 'Restart stage', 'Back to map', `Music: ${SAVE.music ? 'on' : 'off'}`, `Sound: ${SAVE.sfx ? 'on' : 'off'}`, `Live weather: ${SAVE.wxOff ? 'off' : 'on'}`]; }
 function updPause(inp) {
   const items = pauseItems();
   menuNav(inp, items.length);
@@ -4119,10 +4762,11 @@ function updPause(inp) {
   else if (pick === 2) { G.scene = 'map'; G.overlay = null; G.sel = G.world * 4 + G.idx; playSong('map'); }
   else if (pick === 3) { SAVE.music = !SAVE.music; setMusicOn(SAVE.music); writeSave(); }
   else if (pick === 4) { SAVE.sfx = !SAVE.sfx; setSfxOn(SAVE.sfx); writeSave(); }
+  else if (pick === 5) { SAVE.wxOff = !SAVE.wxOff; writeSave(); if (!SAVE.wxOff) wxFetch(); }
 }
 function drawPause(c) {
   c.fillStyle = 'rgba(6,4,8,0.6)'; c.fillRect(0, 0, VW, VH);
-  panel(c, VW / 2 - 100, 56, 200, 166);
+  panel(c, VW / 2 - 100, 56, 200, 186);
   txt(c, 'Paused', VW / 2, 84, 18, '#fff1dc', 'center', FD);
   pauseItems().forEach((s, i) => {
     const y = 110 + i * 20, on = i === G.menu;
@@ -4158,6 +4802,7 @@ function drawAbility(c) {
   txt(c, 'New move unlocked', VW / 2, 98, 10, '#d8cbbb', 'center');
   txt(c, p.name, VW / 2, 126, 26, '#fff4e2', 'center', FD);
   wrap(c, p.desc, 230, 8).forEach((l, i) => txt(c, l, VW / 2, 152 + i * 12, 8, '#e8dccb', 'center'));
+  txt(c, `Lost: ${LOSSES[G.world]}`, VW / 2, 194, 7, '#ff9aaa', 'center');
   if (G.overlayT <= 0 && Math.sin(G.t * 5) > -0.3) txt(c, `${btn('jump')} to continue`, VW / 2, 208, 8, '#ffcf8a', 'center');
 }
 
@@ -4265,6 +4910,7 @@ function drawMapUI(c) {
   const ab = abilitiesFor(Math.min(4, Math.floor(SAVE.unlocked / 4)));
   const owned = POWERS.filter((p, i) => [ab.dj, ab.dash, ab.wall, ab.glide][i]).map(p => p.name);
   txt(c, owned.length ? owned.join(' · ') : 'No moves unlocked yet', VW - 14, 42, 7, 'rgba(255,230,200,0.65)', 'right');
+  if (WX.live && !SAVE.wxOff) txt(c, 'Live weather · ' + wxLabel(), VW - 14, 56, 7, 'rgba(190,220,255,0.7)', 'right');
   if (w > 0) txt(c, '‹', 16, 158, 22, 'rgba(255,220,180,0.7)', 'center', FD);
   if ((w + 1) * 4 <= Math.min(19, SAVE.unlocked)) txt(c, '›', VW - 16, 158, 22, 'rgba(255,220,180,0.7)', 'center', FD);
   // info panel
@@ -4281,37 +4927,101 @@ function drawMapUI(c) {
 // ---------- ending ----------
 function updEnding(inp, dt) {
   G.endT += dt;
-  if (G.endT > 4 && (inp.P.jump || inp.P.confirm || G.click)) { sfx('ok'); G.scene = 'map'; G.sel = 19; playSong('map'); }
+  if (G.endT > 10.5 && G.endT - dt <= 10.5) playSong('');
+  if (G.endT > 20 && (inp.P.jump || inp.P.confirm || G.click)) { sfx('ok'); G.scene = 'map'; G.sel = 19; playSong('map'); }
+  else if (G.endT < 10 && G.endT > 4 && (inp.P.jump || inp.P.confirm || G.click)) G.endT = 10;
 }
 function drawEndingScene(g) {
-  const t = G.endT, k = Math.min(1, t / 8);
-  const gr = g.createLinearGradient(0, 0, 0, VH);
-  gr.addColorStop(0, `rgb(${Math.round(30 + 90 * k)},${Math.round(30 + 70 * k)},${Math.round(70 + 60 * k)})`);
-  gr.addColorStop(0.7, `rgb(${Math.round(80 + 170 * k)},${Math.round(50 + 120 * k)},${Math.round(60 + 50 * k)})`);
-  gr.addColorStop(1, `rgb(${Math.round(120 + 135 * k)},${Math.round(80 + 130 * k)},${Math.round(60 + 40 * k)})`);
-  g.fillStyle = gr; g.fillRect(0, 0, VW, VH);
-  const ex = 90, ey = 190, f = Math.max(0, 1 - t / 7);
-  for (let i = 0; i < 9; i++) { const a = i * 0.7 + t * 0.2, r = (30 + i * 6) * (0.6 + Math.min(1, t / 2) * 0.6); circ(g, ex + Math.cos(a) * 20, ey - 30 - i * 8 + Math.sin(a) * 8, r * 0.5, `rgba(255,${120 + i * 12},60,${0.25 * f + 0.05})`); }
-  circ(g, ex, ey - 110, 40 * (0.5 + Math.min(1, t / 2) * 0.5), `rgba(255,190,120,${0.35 * f + 0.08})`);
-  const R = rng(5);
-  for (let layer = 0; layer < 2; layer++) {
-    g.fillStyle = layer ? '#1a1418' : '#2c2228'; g.beginPath(); g.moveTo(0, VH);
-    for (let x = 0; x <= VW; x += 20) g.lineTo(x, 200 + layer * 24 + Math.sin(x * 0.02 + layer * 2) * 8 + R() * 4);
-    g.lineTo(VW, VH); g.fill();
+  const t = G.endT;
+  if (t < 10.5) {
+    // part one: he walks out of the blast into the sunrise
+    const k = Math.min(1, t / 8);
+    const gr = g.createLinearGradient(0, 0, 0, VH);
+    gr.addColorStop(0, `rgb(${Math.round(30 + 90 * k)},${Math.round(30 + 70 * k)},${Math.round(70 + 60 * k)})`);
+    gr.addColorStop(0.7, `rgb(${Math.round(80 + 170 * k)},${Math.round(50 + 120 * k)},${Math.round(60 + 50 * k)})`);
+    gr.addColorStop(1, `rgb(${Math.round(120 + 135 * k)},${Math.round(80 + 130 * k)},${Math.round(60 + 40 * k)})`);
+    g.fillStyle = gr; g.fillRect(0, 0, VW, VH);
+    const ex = 90, ey = 190, f = Math.max(0, 1 - t / 7);
+    for (let i = 0; i < 9; i++) { const a = i * 0.7 + t * 0.2, r = (30 + i * 6) * (0.6 + Math.min(1, t / 2) * 0.6); circ(g, ex + Math.cos(a) * 20, ey - 30 - i * 8 + Math.sin(a) * 8, r * 0.5, `rgba(255,${120 + i * 12},60,${0.25 * f + 0.05})`); }
+    circ(g, ex, ey - 110, 40 * (0.5 + Math.min(1, t / 2) * 0.5), `rgba(255,190,120,${0.35 * f + 0.08})`);
+    const R = rng(5);
+    for (let layer = 0; layer < 2; layer++) {
+      g.fillStyle = layer ? '#1a1418' : '#2c2228'; g.beginPath(); g.moveTo(0, VH);
+      for (let x = 0; x <= VW; x += 20) g.lineTo(x, 200 + layer * 24 + Math.sin(x * 0.02 + layer * 2) * 8 + R() * 4);
+      g.lineTo(VW, VH); g.fill();
+    }
+    const hx = 150 + Math.min(t, 10) * 18, hy = 222 + Math.sin(hx * 0.02 + 2) * 6;
+    g.save(); g.translate(hx, hy); g.scale(3, 3); heroBody(g, { run: true, st: Math.floor(t * 6) % 4, t: G.t, glasses: true, stage: 5 }); g.restore();
+    for (let i = 0; i < 6; i++) { const bx = ((t * 20 + i * 90) % 560) - 40, by = 70 + i * 9 + Math.sin(t * 2 + i) * 4; rect(g, Math.round(bx), Math.round(by), 3, 1, '#1a1418'); rect(g, Math.round(bx) + 1, Math.round(by) - (Math.sin(t * 12 + i) > 0 ? 1 : 0), 1, 1, '#1a1418'); }
+    if (t > 8.5) { g.fillStyle = `rgba(0,0,0,${Math.min(1, (t - 8.5) / 2)})`; g.fillRect(0, 0, VW, VH); }
+    return;
   }
-  const hx = 150 + Math.min(t, 10) * 18, hy = 222 + Math.sin(hx * 0.02 + 2) * 6;
-  g.save(); g.translate(hx, hy); g.scale(3, 3); heroBody(g, { run: true, st: Math.floor(t * 6) % 4, t: G.t, glasses: true }); g.restore();
-  for (let i = 0; i < 6; i++) { const bx = ((t * 20 + i * 90) % 560) - 40, by = 70 + i * 9 + Math.sin(t * 2 + i) * 4; rect(g, Math.round(bx), Math.round(by), 3, 1, '#1a1418'); rect(g, Math.round(bx) + 1, Math.round(by) - (Math.sin(t * 12 + i) > 0 ? 1 : 0), 1, 1, '#1a1418'); }
+  // part two: later. A penthouse at night, a ring light, a podcast mic, a livestream. Nobody else.
+  const u = t - 10.5;
+  g.fillStyle = '#0c0f1c'; g.fillRect(0, 0, VW, VH);
+  // the window and the city he can see but isn't part of
+  const wx = 18, wy = 26, ww = 236, wh = 168;
+  const sky = g.createLinearGradient(0, wy, 0, wy + wh); sky.addColorStop(0, '#0a0d24'); sky.addColorStop(1, '#2a1838');
+  g.fillStyle = sky; g.fillRect(wx, wy, ww, wh);
+  const R = rng(11);
+  for (let i = 0; i < 26; i++) {
+    const bw = 8 + Math.floor(R() * 14), bh = 30 + Math.floor(R() * 110), bx = wx + Math.floor(R() * ww), by = wy + wh - bh;
+    rect(g, bx, by, bw, bh, '#11142a');
+    for (let yy = by + 4; yy < wy + wh - 3; yy += 6) for (let xx = bx + 2; xx < bx + bw - 2; xx += 4) if (R() < 0.35) rect(g, xx, yy, 2, 2, Math.sin(u * 0.7 + xx * 3 + yy) > 0.93 ? '#1a1d30' : '#ffd98a');
+  }
+  g.fillStyle = 'rgba(160,190,255,0.06)'; g.beginPath(); g.moveTo(wx + 30, wy); g.lineTo(wx + 70, wy); g.lineTo(wx + 20, wy + wh); g.lineTo(wx - 20, wy + wh); g.fill();
+  rect(g, wx - 3, wy - 3, ww + 6, 3, '#1c2034'); rect(g, wx - 3, wy + wh, ww + 6, 3, '#1c2034'); rect(g, wx - 3, wy, 3, wh, '#1c2034'); rect(g, wx + ww, wy, 3, wh, '#1c2034'); rect(g, wx + ww / 2 - 1, wy, 3, wh, '#1c2034');
+  // floor
+  rect(g, 0, 214, VW, VH - 214, '#121524'); rect(g, 0, 214, VW, 1, '#22263a');
+  // ring light
+  const rx = 410, ry = 104;
+  g.globalCompositeOperation = 'lighter'; warmGlow(g, rx, ry, 110, 0.22, '220,235,255'); g.globalCompositeOperation = 'source-over';
+  g.strokeStyle = '#eef4ff'; g.lineWidth = 4; g.beginPath(); g.arc(rx, ry, 30, 0, Math.PI * 2); g.stroke();
+  rect(g, rx - 1, ry + 30, 2, 184 - ry, '#2a2e40');
+  // him, bigger than before, behind the desk
+  const hb = 1 + Math.sin(u * 2) * 0.01;
+  g.save(); g.translate(rx, 214); g.scale(4.4, 4.4 * hb); heroBody(g, { t: G.t, glasses: true, stage: 5 }); g.restore();
+  // desk, mic, phone on a tripod
+  rect(g, 330, 180, 150, 34, '#1b1e2e'); rect(g, 330, 180, 150, 2, '#2c3046');
+  rect(g, 372, 154, 2, 26, '#3a3d4a'); rect(g, 366, 142, 14, 14, '#2a2c34'); for (let i = 0; i < 3; i++) rect(g, 368, 145 + i * 3, 10, 1, '#4a4d5a');
+  rect(g, 458, 144, 2, 36, '#3a3d4a'); rect(g, 450, 128, 18, 16, '#2a2c34'); rect(g, 452, 130, 14, 12, '#8fd0ff');
+  if (Math.sin(u * 3) > 0) rect(g, 464, 131, 1, 1, '#ff3a3a');
+  // the last soft thing he had, drifting out through the glass
+  const p = (u * 0.08) % 1, hx = rx - 20 - p * 190, hy = 150 - p * 70 + Math.sin(u * 1.3) * 6;
+  g.globalAlpha = Math.max(0, 0.75 - p * 0.75); heartIcon(g, hx, hy, 4, '#ff7aa0'); g.globalAlpha = 1;
 }
 function drawEndingUI(c) {
-  const t = G.endT;
-  const a = x => Math.max(0, Math.min(1, (t - x) / 1.2));
-  ENDING_LINES.forEach((l, i) => { c.globalAlpha = a(1 + i * 1.6); txt(c, l, VW / 2, 28 + i * 17 + (i === 4 ? 6 : 0), i === 4 ? 14 : 9, i === 4 ? '#fff4e2' : '#ffe6c4', 'center', i === 4 ? FD : FU); });
+  const t = G.endT, a = x => Math.max(0, Math.min(1, (t - x) / 1.2));
+  if (t < 10.5) {
+    const out = t > 8.5 ? Math.max(0, 1 - (t - 8.5) / 1.5) : 1;
+    ENDING_LINES.slice(0, 3).forEach((l, i) => { c.globalAlpha = a(1 + i * 2.2) * out; txt(c, l, VW / 2, 36 + i * 18, 9, '#ffe6c4', 'center'); });
+    c.globalAlpha = 1;
+    return;
+  }
+  const u = t - 10.5;
+  c.globalAlpha = a(11.2); txt(c, ENDING_LINES[3], VW / 2, 18, 9, '#d8e2ff', 'center');
+  c.globalAlpha = a(13.2); txt(c, ENDING_LINES[4], VW / 2, 252, 15, '#fff4e2', 'center', FD);
+  // neon sign
+  c.globalAlpha = a(11.6) * (0.85 + Math.sin(t * 9) * 0.05 + (Math.sin(t * 23) > 0.97 ? -0.5 : 0));
+  c.save(); c.shadowColor = '#ff3a8a'; c.shadowBlur = 12; txt(c, 'ALPHA', 410, 58, 16, '#ff6aa8', 'center', FD); c.restore();
+  // the stream: LIVE badge, viewers climbing, chat scrolling
+  c.globalAlpha = a(12);
+  c.fillStyle = '#d0202a'; rr(c, 262, 188, 30, 11, 3); c.fill(); txt(c, 'LIVE', 277, 196, 6, '#ffffff', 'center');
+  const viewers = Math.floor(1200 + Math.pow(Math.max(0, u), 2.2) * 900);
+  txt(c, `${viewers.toLocaleString('en-US')} watching`, 262, 209, 6, '#d8e2ff');
+  const n = Math.floor(u * 1.6);
+  for (let i = 0; i < 6; i++) {
+    const k = n - i; if (k < 0) continue;
+    const msg = ENDING_CHAT[(k * 7) % ENDING_CHAT.length], y = 176 - i * 11 - ((u * 1.6) % 1) * 11;
+    c.globalAlpha = a(12) * (1 - i / 6);
+    txt(c, `u${(k * 7919) % 9000 + 1000}: ${msg}`, 262, y, 6, i === 0 ? '#ffffff' : '#a8b4d8');
+  }
   let stars = 0; for (const key in SAVE.lv) stars += SAVE.lv[key].stars.filter(Boolean).length;
-  c.globalAlpha = a(9.5);
-  txt(c, 'MISSION COMPLETE', VW / 2, 138, 18, '#ff8aa0', 'center', FD);
-  txt(c, `Time ${fmtTime(SAVE.playTime)}  ·  Setbacks ${SAVE.deaths}  ·  Mixtapes ${stars}/45`, VW / 2, 154, 8, '#fff1dc', 'center');
-  c.globalAlpha = a(10.5) * (Math.sin(G.t * 5) > -0.3 ? 1 : 0); txt(c, `${btn('jump')} to return to the map`, VW / 2, 170, 8, '#3a1a10', 'center');
+  c.globalAlpha = a(16);
+  txt(c, 'MISSION ACCOMPLISHED', 136, 216, 12, '#ff8aa0', 'center', FD);
+  txt(c, `Time ${fmtTime(SAVE.playTime)} · Setbacks ${SAVE.deaths} · Mixtapes ${stars}/45`, 136, 228, 6, '#d8e2ff', 'center');
+  c.globalAlpha = a(18.5); txt(c, 'Everyone is watching him. Nobody is with him.', VW / 2, 34, 8, '#ff9aaa', 'center');
+  c.globalAlpha = a(20) * (Math.sin(G.t * 5) > -0.3 ? 0.9 : 0); txt(c, `${btn('jump')} to return to the map`, VW / 2, 266, 7, '#8a94b8', 'center');
   c.globalAlpha = 1;
 }
 function updIntro(inp, dt) {
@@ -4358,6 +5068,8 @@ function update(dt) {
   }
   if (G.scene !== sc0 && G.scene !== 'play') G.fade = 1;
   G.click = null;
+  wxTick(dt);
+  bellTick(dt);
   netTick(dt);
 }
 function render() {
@@ -4403,6 +5115,7 @@ function frame(now) {
 
 // ---------- boot ----------
 loadSave();
+wxInit();
 AU.musicOn = SAVE.music; AU.sfxOn = SAVE.sfx;
 G.sel = Math.min(SAVE.cursor, SAVE.unlocked);
 G.touch = matchMedia('(pointer: coarse)').matches;

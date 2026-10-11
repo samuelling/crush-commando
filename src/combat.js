@@ -178,16 +178,7 @@ function planPods(L, seed) {
 }
 
 // ---------- drawing ----------
-function drawRunner(g, e) {
-  const x = Math.round(e.x), y = Math.round(e.y), f = Math.sign(e.vx) || -1, st = Math.floor(e.t * 10) % 2;
-  const body = e.flash > 0 ? '#ffffff' : '#2a1630';
-  rect(g, x + 2 + (st ? 0 : 2), y + 10, 2, 4, body); rect(g, x + 6 - (st ? 0 : 2), y + 10, 2, 4, body);
-  rect(g, x + 1, y + 4, 8, 7, body); rect(g, x + 2, y, 6, 5, body);
-  rect(g, x + (f > 0 ? 4 : 2), y + 2, 4, 1, '#ff5a8a');
-  g.fillStyle = '#ff5a8a'; g.beginPath(); const hx = x + 5, hy = y + 6; g.moveTo(hx, hy + 2); g.lineTo(hx - 2, hy); g.lineTo(hx - 1, hy - 1); g.lineTo(hx, hy); g.lineTo(hx + 1, hy - 1); g.lineTo(hx + 2, hy); g.fill();
-  rect(g, x + 4, y + 5, 1, 2, '#1a0a14');
-  if (e.shooter) rect(g, f > 0 ? x + 8 : x - 4, y + 5, 6, 2, e.aimT > 0 ? '#ffe08a' : '#4a4a52');
-}
+function drawRunner(g, e) { drawMemoryRunner(g, e); }
 function drawPod(g, e) {
   const x = e.x, y = e.y, fl = Math.sin(e.t * 20) > 0;
   g.fillStyle = e.flash > 0 ? '#ffffff' : '#9aa0aa'; g.beginPath(); g.ellipse(x, y, 10, 5, 0, 0, Math.PI * 2); g.fill();
@@ -217,7 +208,11 @@ function heroBody(g, o) {
     rect(g, a, -6, 3, 5, pants); rect(g, b, -6, 3, 5, pants2); rect(g, a, -1, 3, 1, boot); rect(g, b, -1, 3, 1, boot);
   }
   const ty = o.crouch ? -10 : -13;
+  const stg = o.stage || 0;
   rect(g, -4, ty, 8, 7, skin); rect(g, -4, ty, 2, 7, skin2); rect(g, -2, ty + 2, 5, 1, skin2); rect(g, 0, ty + 4, 1, 2, skin2); rect(g, -4, ty + 6, 8, 1, '#5a3a1c');
+  if (stg >= 2) { rect(g, -5, ty, 1, 4, skin2); rect(g, 4, ty, 1, 4, skin); }
+  if (stg >= 5) { rect(g, -4, ty + 1, 8, 5, '#15151c'); rect(g, -5, ty, 1, 3, skin2); rect(g, 4, ty, 1, 3, skin); }
+  if (stg >= 3) { rect(g, -2, ty + 1, 5, 1, '#ffd84a'); rect(g, 0, ty + 2, 1, 1, '#ffd84a'); }
   const hy = ty - 6;
   rect(g, -3, hy, 6, 6, '#e2a878'); rect(g, -3, hy - 1, 6, 2, '#2a1a10'); rect(g, 3, hy + 4, 1, 2, '#c08858');
   rect(g, -3, hy + 1, 6, 1, pal.band || '#d0302a');
@@ -237,7 +232,7 @@ function drawCommando(g) {
   const [ax, ay] = G.aim || [P.face, 0];
   const face = ax !== 0 ? Math.sign(ax) : P.face;
   g.save(); g.translate(fx, fy); g.scale(P.sx * face, P.sy);
-  heroBody(g, { crouch: P.crouch, air: !P.onGround, run, st, t: G.t, glasses: G.world === 4 });
+  heroBody(g, { crouch: P.crouch, air: !P.onGround, run, st, t: G.t, glasses: G.world === 4, stage: G.world });
   g.restore();
   const gy = fy + (P.crouch ? -8 : -10);
   g.strokeStyle = '#d9a070'; g.lineWidth = 2; g.beginPath(); g.moveTo(fx, gy); g.lineTo(fx + ax * 4, gy + ay * 4); g.stroke();
