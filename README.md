@@ -4,7 +4,7 @@ A run-and-gun platformer about one man fighting his way down through his memorie
 
 It plays side-on like Contra. In parts of every mission the camera drops into first person and the flat level turns out to be one slice of a wider 3D canyon. You can step off the path into hidden lanes with their own terrain, enemies and weapon caches.
 
-**Play together:** https://samuelling.github.io/crush-commando/ (once the deploy below is set up)
+**Play together:** https://linglab.org/crush-commando/ (once the deploy below is set up)
 
 `cc/index.html` is Crush Commando on its own: a single self-contained file you can open straight from disk.
 
